@@ -114,7 +114,7 @@ export class RobotMeshSet {
     }: RobotMeshSetOptions = {},
   ) {
     this.meshTypeIndex = meshTypeIndex
-    this.maxCount = maxCount
+    this.maxCount = maxCount //test
 
     // ── InstancedGeometry ──────────────────────────────────────────────────
     this.geometry = new InstancedGeometry(baseGeometry, maxCount, {
