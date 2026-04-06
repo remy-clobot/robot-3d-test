@@ -150,8 +150,8 @@ export class RobotMeshSet {
       vertexShader: outlineVertexShader,
       fragmentShader: outlineFragmentShader,
       side: THREE.BackSide,
-      transparent: true,
-      depthWrite: false,
+      // transparent: true,
+      /*depthWrite: false,*/
     })
     this.outlineMesh = this._makeMesh(this.geometry, this.outlineMaterial, 1)
 

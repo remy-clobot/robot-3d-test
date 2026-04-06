@@ -50,11 +50,11 @@ const transformPosition = /* glsl */ `
 vec3 localPos = position * instanceScale;
 
 #ifdef OUTLINE
-localPos += sign(localPos) * 0.08;
+localPos += sign(localPos) * 0.04;
 #endif
 
 #ifdef PICKING
-localPos += sign(localPos) * 0.3;
+localPos += sign(localPos) * 0.15;
 #endif
 
 vec3 transformed = rotZ(rotationZ) * rotY(rotationY) * rotX(rotationX) * localPos + translation;

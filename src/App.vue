@@ -9,8 +9,8 @@ import LabelCanvas from './components/LabelCanvas.vue'
 <template>
   <div class="app-root">
     <div class="viewport">
-      <ThreeCanvas />
       <KonvaOverlay />
+      <ThreeCanvas />
       <LabelCanvas />
       <ModeToggle />
       <RobotPanel />

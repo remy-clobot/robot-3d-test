@@ -21,7 +21,7 @@ const PILL_GAP   = 0     // gap between pill bottom and line (= anchor offset fr
 const PADDING_X  = 8     // badge padding
 
 // line
-const V          = 60    // vertical segment (px up)
+const V          = 100    // vertical segment (px up)
 const H          = 200   // horizontal segment
 const SLOPE      = 30    // 얼마나 꺾일지
 
@@ -89,13 +89,23 @@ function roundRectPath(x: number, y: number, w: number, h: number, r: number) {
 }
 
 /** Draw a label pill centered at (cx, cy). */
-function drawPill(label: string, cx: number, cy: number) {
+function drawPill(
+    label: string,
+    x: number,
+    y: number,
+    align: 'center' | 'left' | 'right' = 'center'
+) {
   if (!ctx) return
   ctx.font = FONT
   const tw   = ctx.measureText(label).width
   const boxW = tw + PADDING_X * 2
-  const bx   = cx - boxW / 2
-  const by   = cy - PILL_H / 2
+
+  // 정렬 기준에 따라 박스의 시작점(bx) 계산
+  let bx = x - boxW / 2           // 기본값: 중앙 정렬
+  if (align === 'left') bx = x    // 좌측 정렬: x에서 시작
+  if (align === 'right') bx = x - boxW // 우측 정렬: x에서 끝남
+
+  const by = y - PILL_H / 2
 
   roundRectPath(bx, by, boxW, PILL_H, 5)
   ctx.fillStyle = 'rgba(15, 15, 30, 0.78)'
@@ -103,7 +113,7 @@ function drawPill(label: string, cx: number, cy: number) {
 
   ctx.textBaseline = 'middle'
   ctx.fillStyle    = '#dee2e6'
-  ctx.fillText(label, bx + PADDING_X, cy)
+  ctx.fillText(label, bx + PADDING_X, y)
 }
 
 // ─── main draw ────────────────────────────────────────────────────────────────
@@ -147,7 +157,8 @@ function draw() {
   // Bent line geometry
   // Line starts at bottom of where the label pill would be
   const ax = sx
-  const ay = sy - PILL_GAP - PILL_H / 2   // label-center height = line start
+  const ay = sy
+  //const ay = sy - PILL_GAP - PILL_H / 2   // label-center height = line start
 
   const cx = ax + SLOPE * dir
   const cy = ay - V
@@ -159,7 +170,11 @@ function draw() {
   const tip = getPointOnPath(ax, ay, cx, cy, ex, ey, p)
 
   ctx.save()
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)'
+  ctx.shadowColor = '#3a7578'
+  ctx.shadowBlur = 5
+
+  //ctx.strokeStyle = '#00f3ff' // 👈 네온 파랑색 (Cyan 계열)
+   ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)'
   ctx.lineWidth   = 1.5
   ctx.lineCap     = 'round'
   ctx.lineJoin    = 'round'
@@ -180,13 +195,18 @@ function draw() {
   //    fades in as the horizontal segment draws
   const horzFraction = distDone <= V ? 0 : (distDone - V) / H
   if (horzFraction > 0) {
-    // Label center: above the current tip of the horizontal segment
-    const labelCx = tip.x
     const labelCy = ey - PILL_H / 2 - 4
 
+    // 선이 오른쪽(1)으로 뻗으면 배지는 선의 끝점에서 끝나야 하므로 'right' 정렬
+    // 선이 왼쪽(-1)으로 뻗으면 배지는 선의 끝점에서 시작해야 하므로 'left' 정렬
+    const align = dir > 0 ? 'right' : 'left'
+
     ctx.save()
-    ctx.globalAlpha = Math.min(horzFraction / 0.5, 1)   // fade in over first 50% of horiz
-    drawPill(`#${robot.id}`, labelCx, labelCy)
+    ctx.globalAlpha = Math.min(horzFraction / 0.5, 1)
+
+    // tip.x를 그대로 넘기면서 align 옵션만 부여
+    drawPill(`#${robot.id}`, tip.x, labelCy, align)
+
     ctx.restore()
   }
 

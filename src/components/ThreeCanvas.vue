@@ -59,10 +59,11 @@ function initScene() {
     antialias: pixelRatio < 2,
     powerPreference: 'high-performance',
     stencil: false,
+    alpha: true,
   })
   renderer.setSize(width, height)
   renderer.setPixelRatio(pixelRatio)
-  renderer.setClearColor(0x1a1a2e, 1)
+  renderer.setClearColor(0x000000, 0)
   container.appendChild(renderer.domElement)
 
   // Scene
@@ -90,8 +91,6 @@ function initScene() {
   scene.add(dir)
 
   // Ground
-  const grid = new THREE.GridHelper(20, 20, 0x444466, 0x333355)
-  scene.add(grid)
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(20, 20),
     new THREE.MeshStandardMaterial({ color: 0x16213e, transparent: true, opacity: 0.5 }),
@@ -162,7 +161,7 @@ function syncProjectedNodes() {
     }
 
 
-    const s = worldToScreen3D(robot.x, robot.y + 0.5, robot.z, camera, w, h)
+    const s = worldToScreen3D(robot.x, robot.y + 0.4, robot.z, camera, w, h)
     // Mark off-screen / behind-camera with sentinels so LabelCanvas can skip cheaply
     pt.x = s.behindCamera ? -9999 : s.x
     pt.y = s.behindCamera ? -9999 : s.y
