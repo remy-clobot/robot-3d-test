@@ -136,7 +136,7 @@ export class RobotMeshSet {
     baseGeometry.dispose()
 
     // ── Main mesh ──────────────────────────────────────────────────────────
-    this.material = new THREE.MeshLambertMaterial({ transparent: true, depthWrite: false })
+    this.material = new THREE.MeshLambertMaterial({ transparent: true,/* depthWrite: true*/ })
     this.material.onBeforeCompile = (shader) => {
       Object.assign(shader.uniforms, this.uniforms)
       shader.vertexShader = injectRobotVertex(shader.vertexShader)
@@ -149,11 +149,11 @@ export class RobotMeshSet {
       uniforms: this.uniforms,
       vertexShader: outlineVertexShader,
       fragmentShader: outlineFragmentShader,
-      side: THREE.DoubleSide,
+      side: THREE.BackSide,
       transparent: true,
       depthWrite: false,
     })
-    this.outlineMesh = this._makeMesh(this.geometry, this.outlineMaterial, 0)
+    this.outlineMesh = this._makeMesh(this.geometry, this.outlineMaterial, 1)
 
     // ── Picking mesh (optional) ────────────────────────────────────────────
     if (enablePicking) {

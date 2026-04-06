@@ -4,7 +4,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { useAppStore } from '../stores/appStore'
 import { useMapStore } from '../stores/mapStore'
-import { worldToScreen } from '../utils/coordinateSync'
+import { worldToScreen, worldToScreen3D } from '../utils/coordinateSync'
 import { RobotMeshSet } from '../three/RobotMeshSet'
 import { createRobotGeometry } from '../three/geometry/RobotGeometry'
 import { statusToNumber, type RobotType } from '../data/sampleData'
@@ -141,6 +141,7 @@ function initScene() {
 function syncProjectedNodes() {
   const w = appStore.containerWidth
   const h = appStore.containerHeight
+
   for (const node of mapStore.nodes) {
     let pt = mapStore.projectedNodes.get(node.id)
     if (!pt) {
@@ -151,6 +152,22 @@ function syncProjectedNodes() {
     pt.x = s.x
     pt.y = s.y
   }
+
+  // Project robot label anchor (slightly above robot top: y + 0.9)
+  for (const robot of mapStore.robots) {
+    let pt = mapStore.projectedRobots.get(robot.id)
+    if (!pt) {
+      pt = { x: 0, y: 0 }
+      mapStore.projectedRobots.set(robot.id, pt)
+    }
+
+
+    const s = worldToScreen3D(robot.x, robot.y + 0.5, robot.z, camera, w, h)
+    // Mark off-screen / behind-camera with sentinels so LabelCanvas can skip cheaply
+    pt.x = s.behindCamera ? -9999 : s.x
+    pt.y = s.behindCamera ? -9999 : s.y
+  }
+
   mapStore.projectedVersion++
 }
 

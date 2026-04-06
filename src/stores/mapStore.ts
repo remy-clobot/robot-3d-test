@@ -21,7 +21,9 @@ export const useMapStore = defineStore('map', () => {
 
   // Filled by ThreeCanvas each render frame (raw Map, no reactivity overhead)
   const projectedNodes    = new Map<number, ProjectedPoint>()
-  const projectedVersion  = ref(0)   // bump once per frame → KonvaOverlay reacts once
+  // Robot label positions: robot.id → screen {x, y}. Filled alongside projectedNodes.
+  const projectedRobots   = new Map<number, ProjectedPoint>()
+  const projectedVersion  = ref(0)   // bump once per frame → KonvaOverlay + LabelCanvas react once
 
   // Bump this when any robot's status/blink/outline changes → ThreeCanvas re-syncs GPU attrs
   const robotVersion = ref(0)
@@ -30,5 +32,5 @@ export const useMapStore = defineStore('map', () => {
     return nodes.value.find((n) => n.id === id)
   }
 
-  return { nodes, links, robots, projectedNodes, projectedVersion, robotVersion, getNode }
+  return { nodes, links, robots, projectedNodes, projectedRobots, projectedVersion, robotVersion, getNode }
 })

@@ -3,6 +3,7 @@ import ThreeCanvas from './components/ThreeCanvas.vue'
 import KonvaOverlay from './components/KonvaOverlay.vue'
 import ModeToggle from './components/ModeToggle.vue'
 import RobotPanel from './components/RobotPanel.vue'
+import LabelCanvas from './components/LabelCanvas.vue'
 </script>
 
 <template>
@@ -10,6 +11,7 @@ import RobotPanel from './components/RobotPanel.vue'
     <div class="viewport">
       <ThreeCanvas />
       <KonvaOverlay />
+      <LabelCanvas />
       <ModeToggle />
       <RobotPanel />
     </div>
