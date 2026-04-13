@@ -23,7 +23,7 @@ function initMapScene() {
   renderer.setClearColor(0x000000, 0)
   container.appendChild(renderer.domElement)
 
-  scene = new THREE.Scene()
+  scene = new THREE.Scene() //옷을 뭐입을 거얌~~~
 
   // Ground
   const ground = new THREE.Mesh(

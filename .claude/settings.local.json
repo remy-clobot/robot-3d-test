@@ -12,7 +12,8 @@
       "Bash(python3 -c \"from PIL import Image; img = Image.open\\('C:/Projects/robot-3d-test/refs/map_250214.png'\\); print\\(img.size, img.mode\\)\")",
       "Bash(python -c \"from PIL import Image; img = Image.open\\('C:/Projects/robot-3d-test/refs/map_250214.png'\\); print\\(img.size, img.mode\\)\")",
       "Bash(npx tsc:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(echo \"EXIT:$?\")"
     ]
   }
 }

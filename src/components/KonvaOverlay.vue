@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
 import { useAppStore } from '../stores/appStore'
 import { useMapStore } from '../stores/mapStore'
+import { usePlaybackStore } from '../stores/playbackStore'
+import { worldToScreen } from '../utils/coordinateSync'
 
-const appStore = useAppStore()
-const mapStore = useMapStore()
+const appStore    = useAppStore()
+const mapStore    = useMapStore()
+const playback    = usePlaybackStore()
 
 const selectedNodeId = ref<number | null>(null)
 
@@ -67,7 +70,6 @@ const zoneAreaConfigs = computed(() => {
         radiusY:     ellipseRY.value * 0.7,
         rotation:    ellipseRot.value,
         fill:        'rgba(8, 24, 62, 0.2)',
-        //stroke:      'rgba(42, 108, 200, 0.50)',
         strokeWidth: 1,
         listening:   false,
       }
@@ -145,6 +147,211 @@ const stageConfig = computed(() => ({
   height: appStore.containerHeight,
 }))
 
+// ─── arrow animation ──────────────────────────────────────────────────────────
+
+const arrowProgress = ref(0)
+let animFrameId = 0
+
+onMounted(() => {
+  function loop() {
+    arrowProgress.value = (arrowProgress.value + 0.003) % 1
+    animFrameId = requestAnimationFrame(loop)
+  }
+  animFrameId = requestAnimationFrame(loop)
+})
+
+onBeforeUnmount(() => {
+  if (animFrameId) cancelAnimationFrame(animFrameId)
+})
+
+// ─── polyline helpers ─────────────────────────────────────────────────────────
+
+function polylineLength(pts: number[]): number {
+  let len = 0
+  const n = Math.floor(pts.length / 2)
+  for (let i = 0; i < n - 1; i++) {
+    const dx = pts[(i + 1) * 2]     - pts[i * 2]
+    const dy = pts[(i + 1) * 2 + 1] - pts[i * 2 + 1]
+    len += Math.sqrt(dx * dx + dy * dy)
+  }
+  return len
+}
+
+function interpolatePolyline(
+  pts: number[],
+  t: number,
+): { x: number; y: number; angle: number } | null {
+  const n = Math.floor(pts.length / 2)
+  if (n < 2) return null
+  const totalLen = polylineLength(pts)
+  if (totalLen === 0) return null
+  const targetLen = totalLen * Math.max(0, Math.min(1, t))
+  let accumulated = 0
+  for (let i = 0; i < n - 1; i++) {
+    const x0 = pts[i * 2],     y0 = pts[i * 2 + 1]
+    const x1 = pts[(i+1) * 2], y1 = pts[(i+1) * 2 + 1]
+    const dx = x1 - x0, dy = y1 - y0
+    const segLen = Math.sqrt(dx * dx + dy * dy)
+    if (accumulated + segLen >= targetLen) {
+      const frac = segLen > 0 ? (targetLen - accumulated) / segLen : 0
+      return {
+        x:     x0 + dx * frac,
+        y:     y0 + dy * frac,
+        angle: (Math.atan2(dy, dx) * 180) / Math.PI,
+      }
+    }
+    accumulated += segLen
+  }
+  const last = n - 1
+  const dx = pts[last * 2] - pts[(last - 1) * 2]
+  const dy = pts[last * 2 + 1] - pts[(last - 1) * 2 + 1]
+  return {
+    x:     pts[last * 2],
+    y:     pts[last * 2 + 1],
+    angle: (Math.atan2(dy, dx) * 180) / Math.PI,
+  }
+}
+
+// ─── which playback robot is selected (0, 1, 2, or -1) ───────────────────────
+
+const ROBOT_COLORS = ['#4a9eff', '#4aff9e', '#ff9e4a'] as const
+
+const selectedPlaybackIdx = computed(() => {
+  const selId = appStore.selectedRobotId
+  if (selId === null) return -1
+  for (let i = 0; i < 3; i++) {
+    const r = mapStore.robots[i]
+    if (r && r.id === selId) return i
+  }
+  return -1
+})
+
+const selectedRobotColor = computed(() =>
+  selectedPlaybackIdx.value >= 0
+    ? ROBOT_COLORS[selectedPlaybackIdx.value]
+    : ROBOT_COLORS[0],
+)
+
+// ─── selected robot: full trajectory ─────────────────────────────────────────
+
+const selectedTrajectoryPoints = computed<number[]>(() => {
+  void mapStore.projectedVersion
+  void playback.currentIndex
+  if (appStore.mode !== 'monitoring') return []
+  const idx = selectedPlaybackIdx.value
+  if (idx === -1) return []
+  const cam = appStore.threeCamera
+  if (!cam) return []
+  const w = appStore.containerWidth, h = appStore.containerHeight
+  const pts: number[] = []
+  for (const pt of playback.histories[idx]) {
+    const s = worldToScreen(pt.x, pt.y, cam, w, h)
+    pts.push(s.x, s.y)
+  }
+  return pts
+})
+
+// ─── selected robot: future path ─────────────────────────────────────────────
+
+const selectedFuturePoints = computed<number[]>(() => {
+  void mapStore.projectedVersion
+  void playback.currentIndex
+  if (appStore.mode !== 'monitoring') return []
+  const idx = selectedPlaybackIdx.value
+  if (idx === -1) return []
+  const cam = appStore.threeCamera
+  if (!cam) return []
+  const frame = playback.currentFrames[idx]
+  if (!frame) return []
+  const w = appStore.containerWidth, h = appStore.containerHeight
+
+  const cur = worldToScreen(frame.x, frame.y, cam, w, h)
+  const pts: number[] = [cur.x, cur.y]
+  const futureIds = frame.path.slice(frame.pathIndex + 1)
+  for (const nid of futureIds) {
+    const pt = mapStore.projectedNodes.get(Number(nid))
+    if (pt) pts.push(pt.x, pt.y)
+  }
+  return pts
+})
+
+// ─── moving arrows along future path ─────────────────────────────────────────
+
+const N_ARROWS    = 3
+const ARROW_HALF  = 8   // px, 화살표 반길이
+
+const movingArrows = computed(() => {
+  const pts = selectedFuturePoints.value
+  if (pts.length < 4) return []
+  const t0 = arrowProgress.value
+  const arrows: { points: number[] }[] = []
+  for (let i = 0; i < N_ARROWS; i++) {
+    const t   = (t0 + i / N_ARROWS) % 1
+    const pos = interpolatePolyline(pts, t)
+    if (!pos) continue
+    const rad = (pos.angle * Math.PI) / 180
+    const cos = Math.cos(rad), sin = Math.sin(rad)
+    arrows.push({
+      points: [
+        pos.x - cos * ARROW_HALF, pos.y - sin * ARROW_HALF,
+        pos.x + cos * ARROW_HALF, pos.y + sin * ARROW_HALF,
+      ],
+    })
+  }
+  return arrows
+})
+
+// ─── non-selected robots: gradient tail ──────────────────────────────────────
+
+const TAIL_LEN = 20   // 최대 꼬리 길이 (포인트 수)
+
+const gradientTailConfigs = computed(() => {
+  void mapStore.projectedVersion
+  void playback.currentIndex
+  if (appStore.mode !== 'monitoring') return []
+  const cam = appStore.threeCamera
+  if (!cam) return []
+  const w = appStore.containerWidth, h = appStore.containerHeight
+  const selIdx = selectedPlaybackIdx.value
+
+  const result: {
+    robotIdx: number
+    color:    string
+    lines:    { points: number[]; strokeWidth: number; opacity: number }[]
+  }[] = []
+
+  for (let i = 0; i < 3; i++) {
+    if (i === selIdx) continue
+    const hist    = playback.histories[i]
+    const tailLen = Math.min(TAIL_LEN, hist.length)
+    if (tailLen < 2) continue
+    const tail = hist.slice(-tailLen)
+    const pts  = tail.flatMap((pt) => {
+      const s = worldToScreen(pt.x, pt.y, cam, w, h)
+      return [s.x, s.y]
+    })
+    if (pts.length < 4) continue
+
+    // 선택 로봇이 아니므로 꼬리를 3개 레이어로 겹쳐서 그라데이션 효과
+    // (로봇 쪽=최근이 두껍고 선명, 멀어질수록 얇고 투명)
+    const n2 = Math.max(2, Math.ceil(tailLen * 2 / 3))
+    const n1 = Math.max(2, Math.ceil(tailLen * 1 / 3))
+
+    result.push({
+      robotIdx: i,
+      color:    ROBOT_COLORS[i],
+      lines: [
+        { points: pts,                  strokeWidth: 4, opacity: 0.15 }, // 전체
+        { points: pts.slice(-n2 * 2),   strokeWidth: 6, opacity: 0.30 }, // 후반 2/3
+        { points: pts.slice(-n1 * 2),   strokeWidth: 8, opacity: 0.60 }, // 후반 1/3 (로봇 근처)
+      ],
+    })
+  }
+  return result
+})
+
+// ─── node interactions ────────────────────────────────────────────────────────
+
 function onNodeClick(nodeId: number) {
   if (appStore.mode !== 'editing') return
   selectedNodeId.value = selectedNodeId.value === nodeId ? null : nodeId
@@ -168,7 +375,6 @@ function onNodeDragEnd(nodeId: number, e: any) {
 
       <!-- ── Layer 1: background plane + zone fills ──────────────────────── -->
       <v-layer>
-<!--        <v-rect :config="mapPlaneConfig" />-->
         <v-ellipse
           v-for="zone in zoneAreaConfigs"
           :key="'zf-' + zone.id"
@@ -216,24 +422,6 @@ function onNodeDragEnd(nodeId: number, e: any) {
           @click="onNodeClick(node.id)"
           @dragend="onNodeDragEnd(node.id, $event)"
         />
-
-<!--                <v-circle-->
-<!--                  v-for="node in nodeConfigs"-->
-<!--                  :key="node.id"-->
-<!--                  :config="{-->
-<!--                    x: node.x, y: node.y,-->
-<!--                    radius: 10,-->
-<!--                    //rotation: node.rotation,-->
-<!--                    fill: node.fill,-->
-<!--                    stroke: node.stroke,-->
-<!--                    strokeWidth: node.strokeWidth,-->
-<!--                    draggable: node.draggable,-->
-<!--                  }"-->
-<!--                  @click="onNodeClick(node.id)"-->
-<!--                  @dragend="onNodeDragEnd(node.id, $event)"-->
-<!--                />-->
-
-
         <!-- Zone labels only -->
         <v-text
           v-for="node in nodeConfigs.filter(n => n.label)"
@@ -249,6 +437,74 @@ function onNodeDragEnd(nodeId: number, e: any) {
             listening: false,
           }"
         />
+      </v-layer>
+
+      <!-- ── Layer 3: playback trajectories ────────────────────────────── -->
+      <v-layer>
+
+        <!-- 비선택 로봇: 그라데이션 꼬리 (3레이어 겹치기) -->
+        <template
+          v-for="tail in gradientTailConfigs"
+          :key="'tail-' + tail.robotIdx"
+        >
+          <v-line
+            v-for="(line, li) in tail.lines"
+            :key="li"
+            :config="{
+              points:      line.points,
+              stroke:      tail.color,
+              strokeWidth: line.strokeWidth,
+              opacity:     line.opacity,
+              lineCap:     'round',
+              lineJoin:    'round',
+              listening:   false,
+            }"
+          />
+        </template>
+
+        <!-- 선택 로봇: 전체 궤적 (실선) -->
+        <v-line
+          v-if="selectedTrajectoryPoints.length >= 4"
+          :config="{
+            points:      selectedTrajectoryPoints,
+            stroke:      selectedRobotColor,
+            strokeWidth: 2,
+            lineCap:     'round',
+            lineJoin:    'round',
+            listening:   false,
+            opacity:     0.8,
+          }"
+        />
+
+        <!-- 선택 로봇: 앞으로 갈 경로 (점선) -->
+        <v-line
+          v-if="selectedFuturePoints.length >= 4"
+          :config="{
+            points:      selectedFuturePoints,
+            stroke:      '#ffd43b',
+            strokeWidth: 1.5,
+            dash:        [6, 5],
+            lineCap:     'round',
+            listening:   false,
+            opacity:     0.5,
+          }"
+        />
+
+        <!-- 선택 로봇: 이동 화살표 (future path 위에서 움직임) -->
+        <v-arrow
+          v-for="(arrow, ai) in movingArrows"
+          :key="'arrow-' + ai"
+          :config="{
+            points:        arrow.points,
+            fill:          '#ffd43b',
+            stroke:        '#ffd43b',
+            strokeWidth:   2,
+            pointerLength: 9,
+            pointerWidth:  7,
+            listening:     false,
+          }"
+        />
+
       </v-layer>
 
     </v-stage>

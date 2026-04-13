@@ -35,6 +35,8 @@ export interface Robot {
   x: number
   y: number
   z: number
+  /** Y축 회전 (라디안). 플레이백 등 외부에서 갱신 가능. */
+  rotationY?: number
   status: RobotStatus
   /** Work progress percentage 0–100 (used by custom label) */
   workProgress: number
@@ -304,19 +306,16 @@ export const sampleLinks: MapLink[] = [
   { id: 138, from: 13, to: 89 },
 ]
 
-// Robot positions placed on link midpoints in the new coordinate space
+// 플레이백 로봇(0~2)의 초기 위치는 각 경로의 시작 노드와 일치시킴
 // node.x → robot.x (3D X),  node.y → robot.z (3D Z)
 export const sampleRobots: Robot[] = [
-  { id:  1, type: 'Box',      x:  5.55,  y: 0.4, z:  3.56,  status: 'normal',  workProgress:  0, blink: false, errorMarker: false, shadowDisc: false },
-  { id:  2, type: 'Cylinder', x:  3.55,  y: 0.4, z:  5.41,  status: 'warning', workProgress: 60, blink: false, errorMarker: false, shadowDisc: false },
-  { id:  3, type: 'Box',      x: 10.9,   y: 0.4, z:  6.35,  status: 'normal',  workProgress: 30, blink: false, errorMarker: false, shadowDisc: false },
-  { id:  4, type: 'Cylinder', x: 15.1,   y: 0.4, z:  3.36,  status: 'normal',  workProgress:  0, blink: false, errorMarker: false, shadowDisc: false },
-  { id:  5, type: 'Box',      x: 19.1,   y: 0.4, z:  3.38,  status: 'warning', workProgress: 48, blink: false, errorMarker: false, shadowDisc: false },
-  { id:  6, type: 'Cylinder', x: 21.87,  y: 0.4, z:  1.4,   status: 'normal',  workProgress:  0, blink: false, errorMarker: false, shadowDisc: false },
-  { id:  7, type: 'Box',      x: 13.44,  y: 0.4, z: -2.13,  status: 'warning', workProgress: 75, blink: false, errorMarker: false, shadowDisc: false },
-  { id:  8, type: 'Cylinder', x:  4.5,   y: 0.4, z: -2.16,  status: 'error',   workProgress: 15, blink: true,  errorMarker: true,  shadowDisc: false },
-  { id:  9, type: 'Box',      x: 10.3,   y: 0.4, z: 14.7,   status: 'normal',  workProgress: 45, blink: false, errorMarker: false, shadowDisc: false },
-  { id: 10, type: 'Cylinder', x: -13.1,  y: 0.4, z:  3.45,  status: 'normal',  workProgress: 55, blink: false, errorMarker: false, shadowDisc: false },
+  // ── 플레이백 로봇 3대 (mapStore.robots[0~2]) ─────────────────────────
+  { id: 1, type: 'Box',      x:  2.190, y: 0.4, z:  6.350,  status: 'normal', workProgress:  0, blink: false, errorMarker: false, shadowDisc: false },
+  { id: 2, type: 'Cylinder', x:  7.150, y: 0.4, z:  6.350,  status: 'normal', workProgress:  0, blink: false, errorMarker: false, shadowDisc: false },
+  { id: 3, type: 'Box',      x: -13.449, y: 0.4, z: 10.793, status: 'normal', workProgress:  0, blink: false, errorMarker: false, shadowDisc: false },
+  // ── 정적 로봇 2대 (mapStore.robots[3~4]) ─────────────────────────────
+  { id: 4, type: 'Cylinder', x: 19.764, y: 0.4, z: 10.400,  status: 'warning', workProgress: 60, blink: false, errorMarker: false, shadowDisc: false },
+  { id: 5, type: 'Box',      x: -17.449, y: 0.4, z:  3.437, status: 'normal',  workProgress: 30, blink: false, errorMarker: false, shadowDisc: false },
 ]
 
 // ─── helpers ──────────────────────────────────────────────────────────────────

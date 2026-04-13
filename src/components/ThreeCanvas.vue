@@ -317,11 +317,13 @@ function syncRobotAttrs(i: number): void {
   if (!meshSet) return
   const isSelected = appStore.selectedRobotId === i
   meshSet.setInstanceAttrs(robot.instanceIndex, {
+    translation: [robot.x, robot.y, robot.z],
+    rotationY:   robot.rotationY ?? 0,
     robotStatus: statusToNumber(robot.status),
-    blink: robot.blink ? 1 : 0,
-    outline: isSelected ? 1 : 0,
-    errorMarker: robot.errorMarker ? 1 : 0,
-    shadowDisc: robot.shadowDisc ? 1 : 0,
+    blink:        robot.blink ? 1 : 0,
+    outline:      isSelected ? 1 : 0,
+    errorMarker:  robot.errorMarker ? 1 : 0,
+    shadowDisc:   robot.shadowDisc ? 1 : 0,
   })
   needsRender = true
 }
@@ -346,11 +348,12 @@ watch(
   },
 )
 
-// When any robot's data changes (via RobotPanel), re-sync that robot's GPU attrs
+// When any robot's data changes (via RobotPanel / playback), re-sync GPU attrs + re-project labels
 watch(
   () => mapStore.robotVersion,
   () => {
     for (let i = 0; i < mapStore.robots.length; i++) syncRobotAttrs(i)
+    cameraDirty = true   // 로봇 위치 변경 → 라벨 좌표 재투영
   },
 )
 
