@@ -11,6 +11,7 @@ export const useAppStore = defineStore('app', () => {
   const selectedRobotId    = ref<number | null>(null)
   const pointCloudVisible  = ref(true)
   const mapImageVisible    = ref(true)
+  const outlineVisible     = ref(true)
   /** 현재 Three.js 카메라 기준 픽셀/월드단위 스케일 (syncProjectedNodes에서 갱신) */
   const mapScale           = ref(30)  // 장축 크기 (zoom 지표 — 폰트/선 두께 등에 사용)
   const mapEllipseRadiusX  = ref(30)  // 고유값 분해: 장축 반지름 (per world unit)
@@ -36,7 +37,7 @@ export const useAppStore = defineStore('app', () => {
 
   return {
     mode, containerWidth, containerHeight, selectedRobotId,
-    pointCloudVisible, mapImageVisible,
+    pointCloudVisible, mapImageVisible, outlineVisible,
     mapScale, mapEllipseRadiusX, mapEllipseRadiusY, mapEllipseRotation,
     threeCamera, renderFrameCount,
     toggleMode, setThreeCamera, bumpRenderFrame,

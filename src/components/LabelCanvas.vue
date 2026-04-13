@@ -50,7 +50,6 @@ const EFFECTS = [
 // ─── animation state ──────────────────────────────────────────────────────────
 
 let animProgress  = 0
-let animMode: 'in' | 'out' | 'shown' | 'idle' = 'idle'
 let animRafId     = 0
 let animStartTime = 0
 let activeRobotIdx: number | null = null  // 사라짐 애니메이션 중에도 유지
@@ -492,7 +491,6 @@ function draw() {
 // ─── animation ────────────────────────────────────────────────────────────────
 
 function startEnterAnim() {
-  animMode      = 'in'
   animStartTime = performance.now()
   animProgress  = 0
 
@@ -502,15 +500,12 @@ function startEnterAnim() {
     draw()
     if (raw < 1) {
       animRafId = requestAnimationFrame(step)
-    } else {
-      animMode = 'shown'
     }
   }
   animRafId = requestAnimationFrame(step)
 }
 
 function startExitAnim() {
-  animMode      = 'out'
   animStartTime = performance.now()
   const startP  = animProgress  // 현재 progress에서 시작 (중간 상태에서도 자연스럽게)
 
@@ -522,7 +517,6 @@ function startExitAnim() {
       animRafId = requestAnimationFrame(step)
     } else {
       animProgress  = 0
-      animMode      = 'idle'
       activeRobotIdx = null
       draw()
     }

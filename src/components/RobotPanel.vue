@@ -169,7 +169,7 @@ const statusColor = computed(() => {
       <div class="panel-footer">
         <span class="status-dot" :style="{ background: statusColor }" />
         <span class="status-text" :style="{ color: statusColor }">
-          {{ statusOptions.find((o) => o.value === robot.status)?.label }}
+          {{ statusOptions.find((o) => o.value === robot?.status)?.label }}
         </span>
       </div>
     </div>

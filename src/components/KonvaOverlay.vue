@@ -119,11 +119,14 @@ const linkConfigs = computed(() => {
 
 const nodeConfigs = computed(() => {
   void mapStore.projectedVersion
+  void playback.currentIndex
+  const futureIds = selectedFutureNodeIds.value
   return mapStore.nodes.map((node) => {
     const pos      = nodeScreenPos(node.id)
     const isZone   = !!node.label
     const isEdit   = appStore.mode === 'editing'
     //const isSel    = selectedNodeId.value === node.id
+    const isFuture = futureIds.has(node.id)
     const rx = ellipseRX.value
     const ry = ellipseRY.value
     return {
@@ -134,7 +137,7 @@ const nodeConfigs = computed(() => {
       radiusY:     isZone ? Math.max(2, ry * 0.15) : Math.max(1, ry * 0.09),
       rotation:    ellipseRot.value,
       fill:        '#9e9e9e',//isSel ? '#ffd43b' : isZone ? 'rgba(93, 146, 212, 0.5)' : '#0a2444',
-      stroke:      '#696969',//isZone ? '#447a99' : '#133857',
+      stroke:      isFuture ? '#c177e6' : '#696969',//isZone ? '#447a99' : '#133857',
       strokeWidth: 4,
       draggable:   isEdit,
       label:       node.label ?? '',
@@ -215,21 +218,6 @@ function interpolatePolyline(
 // ─── which playback robot is selected (0, 1, 2, or -1) ───────────────────────
 
 
-const selectedPlaybackIdx = computed(() => {
-  const selId = appStore.selectedRobotId
-  if (selId === null) return -1
-  for (let i = 0; i < 3; i++) {
-    const r = mapStore.robots[i]
-    if (r && r.id === selId) return i
-  }
-  return -1
-})
-
-// const selectedRobotColor = computed(() =>
-//   selectedPlaybackIdx.value >= 0
-//     ? ROBOT_COLORS[selectedPlaybackIdx.value]
-//     : ROBOT_COLORS[0],
-// )
 
 // ─── selected robot: full trajectory ─────────────────────────────────────────
 
@@ -254,6 +242,16 @@ const selectedTrajectoryPoints = computed<number[]>(() => {
 })
 
 // ─── selected robot: future path ─────────────────────────────────────────────
+
+const selectedFutureNodeIds = computed<Set<number>>(() => {
+  const selectedIdx = appStore.selectedRobotId
+  if (selectedIdx === null) return new Set()
+  void playback.currentIndex
+  if (appStore.mode !== 'monitoring') return new Set()
+  const frame = playback.currentFrames[selectedIdx]
+  if (!frame) return new Set()
+  return new Set(frame.path.slice(frame.pathIndex + 1).map(Number))
+})
 
 const selectedFuturePoints = computed<number[]>(() => {
   const selectedIdx = appStore.selectedRobotId
@@ -281,23 +279,33 @@ const selectedFuturePoints = computed<number[]>(() => {
 })
 
 // ─── moving arrows along future path ─────────────────────────────────────────
-
-const N_ARROWS    = 20
-const ARROW_HALF  = 1   // px, 화살표 반길이
-const SPEED_FACTOR = 5
+const ARROW_SPACING = 40  // px, 화살표 사이의 절대 픽셀 간격
+const ARROW_HALF  = 1     // px, 화살표 반길이
+const SPEED_FACTOR = 5    // 이동 속도 조절 (숫자가 클수록 빠름)
 
 const movingArrows = computed(() => {
   const pts = selectedFuturePoints.value
   if (pts.length < 4) return []
 
-  // 💡 arrowProgress 값을 SPEED_FACTOR로 나누어 진행 속도를 늦춤
-  const t0 = arrowProgress.value / SPEED_FACTOR
+  const totalLen = polylineLength(pts)
+  if (totalLen === 0) return []
+
+  // 1. 순환 오프셋 계산 (가장 핵심적인 변경 사항 🌟)
+  // arrowProgress(0~1)를 사용하여 0px ~ ARROW_SPACING(40px) 사이를 무한히 반복하는 시작점을 만듭니다.
+  // 이렇게 하면 40px 이동 후 다시 0px로 돌아가며 화살표들이 한 칸씩 교대되어 완벽히 부드럽게 이어집니다.
+  const baseOffset = (arrowProgress.value * SPEED_FACTOR * ARROW_SPACING) % ARROW_SPACING
 
   const arrows: { points: number[] }[] = []
-  for (let i = 0; i < N_ARROWS; i++) {
-    const t   = (t0 + i / N_ARROWS) % 1
+
+  // 2. 전체 비율을 나누는 것이 아니라, 픽셀 거리(d)를 직접 증가시키며 화살표를 렌더링합니다.
+  for (let d = baseOffset; d <= totalLen; d += ARROW_SPACING) {
+    // 거리가 경로 길이를 초과하지 않을 때만 그립니다.
+    // 기존 interpolatePolyline 함수가 t(0~1) 값을 받으므로, 절대 거리를 비율로 다시 변환해 줍니다.
+    const t = d / totalLen
     const pos = interpolatePolyline(pts, t)
+
     if (!pos) continue
+
     const rad = (pos.angle * Math.PI) / 180
     const cos = Math.cos(rad), sin = Math.sin(rad)
     arrows.push({
@@ -307,6 +315,7 @@ const movingArrows = computed(() => {
       ],
     })
   }
+
   return arrows
 })
 
@@ -327,7 +336,7 @@ function onNodeDragEnd(nodeId: number, e: any) {
   node.x = (e.target.x() - editOffset.value.x) / editScale
   node.y = (e.target.y() - editOffset.value.y) / editScale
 }
-const TAIL_LEN = 15;
+const TAIL_LEN = 15; //
 
 const allRobotTails = computed(() => {
   void mapStore.projectedVersion // 카메라 이동 시 재계산 강제
@@ -404,7 +413,6 @@ const allRobotTails = computed(() => {
             radiusY: zone.radiusY,
             rotation: zone.rotation,
             fill: zone.fill,
-            stroke: zone.stroke,
             strokeWidth: zone.strokeWidth,
             listening: zone.listening,
           }"
@@ -461,42 +469,21 @@ const allRobotTails = computed(() => {
 
       <!-- ── Layer 3: playback trajectories ────────────────────────────── -->
       <v-layer>
-
-        <!-- 모든 로봇: 그라데이션 꼬리 (3레이어 겹치기) -->
-<!--        <template-->
-<!--          v-for="tail in gradientTailConfigs"-->
-<!--          :key="'tail-' + tail.robotIdx"-->
-<!--        >-->
-<!--          <v-line-->
-<!--            v-for="(line, li) in tail.lines"-->
-<!--            :key="li"-->
-<!--            :config="{-->
-<!--              points:      line.points,-->
-<!--              stroke:      tail.color,-->
-<!--              strokeWidth: line.strokeWidth,-->
-<!--              opacity:     line.opacity,-->
-<!--              lineCap:     'round',-->
-<!--              lineJoin:    'round',-->
-<!--              listening:   false,-->
-<!--            }"-->
-<!--          />-->
-<!--        </template>-->
-
         <v-line
             v-for="tail in allRobotTails"
             :key="'tail-' + tail.id"
             :config="{
-      points: tail.points,
-      strokeWidth: tail.strokeWidth,
-      lineCap: 'round',
-      lineJoin: 'round',
-      listening: false,
+              points: tail.points,
+              strokeWidth: tail.strokeWidth,
+              lineCap: 'round',
+              lineJoin: 'round',
+              listening: false,
 
-      // 💡 핵심: fill이 아니라 stroke 그라데이션 속성을 사용!
-      strokeLinearGradientStartPoint: { x: tail.startX, y: tail.startY },
-      strokeLinearGradientEndPoint: { x: tail.endX, y: tail.endY },
-      strokeLinearGradientColorStops: tail.colorStops
-    }"
+              // 💡핵심: fill이 아니라 stroke 그라데이션 속성을 사용!
+              strokeLinearGradientStartPoint: { x: tail.startX, y: tail.startY },
+              strokeLinearGradientEndPoint: { x: tail.endX, y: tail.endY },
+              strokeLinearGradientColorStops: tail.colorStops
+            }"
         />
         <!-- 선택 로봇: 전체 궤적 (실선) -->
         <v-line
@@ -512,6 +499,25 @@ const allRobotTails = computed(() => {
           }"
         />
 
+        <!-- 선택 로봇: 과거 궤적 (안쪽 링크) -->
+        <v-line
+            v-if="selectedTrajectoryPoints.length >= 4"
+            :config="{
+    points:      selectedTrajectoryPoints,
+    stroke:      '#908e91',
+    strokeWidth: 2,
+    dash:        [12, 12],
+    // 💡 dashOffset을 추가하여 애니메이션 효과를 줍니다.
+    // dash 배열의 합(12+12=24)을 곱해주면 흐름이 끊기지 않고 부드럽게 이어집니다.
+    // 마이너스(-)를 붙이면 로봇이 진행하는 방향으로 흐르는 느낌을 줍니다.
+    dashOffset:  -arrowProgress * 24 * 5,
+    lineCap:     'round',
+    lineJoin:    'round',
+    listening:   false,
+    opacity:     0.9,
+  }"
+        />
+
         <!-- 선택 로봇: 앞으로 갈 경로 -->
         <v-line
           v-if="selectedFuturePoints.length >= 4"
@@ -520,7 +526,6 @@ const allRobotTails = computed(() => {
             stroke:      'rgb(176, 39, 245)',
             strokeWidth: 10,
             //dash:        [6, 5],
-
             lineCap:     'round',
             lineJoin:    'round',
             listening:   false,
@@ -534,7 +539,7 @@ const allRobotTails = computed(() => {
           :key="'arrow-' + ai"
           :config="{
             points:        arrow.points,
-            fill:          '#615c63',
+            fill:          '#908e91',
             dash:        [6, 5],
             //stroke:        '#ffd43b',
             //strokeWidth:   2,

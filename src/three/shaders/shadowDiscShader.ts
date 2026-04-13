@@ -17,7 +17,7 @@ varying vec2 vUv;
 void main() {
   // CircleGeometry lies in XY plane (position.z = 0).
   // Rotate to XZ ground plane: (x, y, 0) → (x, 0, -y)
-  float radius = max(instanceScale.x, instanceScale.z) * 1.2;
+  float radius = max(instanceScale.x, instanceScale.z) * 0.8; // shadowDisc size
   vec3 worldPos = vec3(
     position.x * radius + translation.x,
     0.01,
@@ -39,8 +39,8 @@ varying vec2 vUv;
 void main() {
   float dist = length(vUv);
   // Fade from opaque at center to transparent at edge (60%–100% radius)
-  float alpha = 0.35 * (1.0 - smoothstep(0.6, 1.0, dist));
+  float alpha = 0.2 * (1.0 - smoothstep(0.6, 1.0, dist));
   if (alpha < 0.001) discard;
-  gl_FragColor = vec4(0.5, 0.8, 1.0, alpha);
+  gl_FragColor = vec4(0.678, 0, 1, alpha);
 }
 `

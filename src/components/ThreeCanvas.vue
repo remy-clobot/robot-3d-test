@@ -321,9 +321,9 @@ function syncRobotAttrs(i: number): void {
     rotationY:   robot.rotationY ?? 0,
     robotStatus: statusToNumber(robot.status),
     blink:        robot.blink ? 1 : 0,
-    outline:      isSelected ? 1 : 0,
+    outline:      isSelected && appStore.outlineVisible ? 1 : 0,
     errorMarker:  robot.errorMarker ? 1 : 0,
-    shadowDisc:   robot.shadowDisc ? 1 : 0,
+    shadowDisc:   isSelected ? 1 : (robot.shadowDisc ? 1 : 0),
   })
   needsRender = true
 }

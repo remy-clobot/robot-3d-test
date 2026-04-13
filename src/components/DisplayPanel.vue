@@ -22,6 +22,11 @@ function togglePointCloud() {
 function toggleMapImage() {
   appStore.mapImageVisible = !appStore.mapImageVisible
 }
+
+function toggleOutline() {
+  appStore.outlineVisible = !appStore.outlineVisible
+  mapStore.robotVersion++
+}
 </script>
 
 <template>
@@ -92,6 +97,20 @@ function toggleMapImage() {
             <span class="toggle-thumb" />
           </span>
           <span class="toggle-label">{{ appStore.mapImageVisible ? 'ON' : 'OFF' }}</span>
+        </button>
+      </div>
+
+      <div class="info-row">
+        <span class="label">아웃<br>라인</span>
+        <button
+          class="toggle-btn"
+          :class="{ on: appStore.outlineVisible }"
+          @click="toggleOutline"
+        >
+          <span class="toggle-track">
+            <span class="toggle-thumb" />
+          </span>
+          <span class="toggle-label">{{ appStore.outlineVisible ? 'ON' : 'OFF' }}</span>
         </button>
       </div>
     </div>
