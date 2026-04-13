@@ -312,52 +312,6 @@ const movingArrows = computed(() => {
 
 // ─── non-selected robots: gradient tail ──────────────────────────────────────
 
-const TAIL_LEN = 20   // 최대 꼬리 길이 (포인트 수)
-
-const gradientTailConfigs = computed(() => {
-  void mapStore.projectedVersion
-  void playback.currentIndex
-  if (appStore.mode !== 'monitoring') return []
-  const cam = appStore.threeCamera
-  if (!cam) return []
-  const w = appStore.containerWidth, h = appStore.containerHeight
-  const selIdx = selectedPlaybackIdx.value
-
-  const result: {
-    robotIdx: number
-    color:    string
-    lines:    { points: number[]; strokeWidth: number; opacity: number }[]
-  }[] = []
-
-  for (let i = 0; i < 3; i++) {
-    if (i === selIdx) continue
-    const hist    = playback.histories[i]
-    const tailLen = Math.min(TAIL_LEN, hist.length)
-    if (tailLen < 2) continue
-    const tail = hist.slice(-tailLen)
-    const pts  = tail.flatMap((pt) => {
-      const s = worldToScreen(pt.x, pt.y, cam, w, h)
-      return [s.x, s.y]
-    })
-    if (pts.length < 4) continue
-
-    // 선택 로봇이 아니므로 꼬리를 3개 레이어로 겹쳐서 그라데이션 효과
-    // (로봇 쪽=최근이 두껍고 선명, 멀어질수록 얇고 투명)
-    const n2 = Math.max(2, Math.ceil(tailLen * 2 / 3))
-    const n1 = Math.max(2, Math.ceil(tailLen * 1 / 3))
-
-    result.push({
-      robotIdx: i,
-      color:    'rgb(159, 0, 255)',
-      lines: [
-        { points: pts,                  strokeWidth: 4, opacity: 0.15 }, // 전체
-        { points: pts.slice(-n2 * 2),   strokeWidth: 6, opacity: 0.30 }, // 후반 2/3
-        { points: pts.slice(-n1 * 2),   strokeWidth: 8, opacity: 0.60 }, // 후반 1/3 (로봇 근처)
-      ],
-    })
-  }
-  return result
-})
 
 // ─── node interactions ────────────────────────────────────────────────────────
 
@@ -373,6 +327,63 @@ function onNodeDragEnd(nodeId: number, e: any) {
   node.x = (e.target.x() - editOffset.value.x) / editScale
   node.y = (e.target.y() - editOffset.value.y) / editScale
 }
+const TAIL_LEN = 15;
+
+const allRobotTails = computed(() => {
+  void mapStore.projectedVersion // 카메라 이동 시 재계산 강제
+  const cam = appStore.threeCamera
+  if (!cam) return []
+
+  const w = appStore.containerWidth
+  const h = appStore.containerHeight
+  const tails: any[] = []
+
+  // 모든 로봇의 이력(history)을 순회합니다.
+  playback.histories.forEach((history, idx) => {
+    const robot = mapStore.robots[idx]
+    if (!robot || history.length < 2) return
+
+    // 💡 핵심 1: 전체 history가 아니라 최신 기록 TAIL_LEN 개수만 잘라냅니다.
+    const tailLen = Math.min(TAIL_LEN, history.length)
+    const recentHistory = history.slice(-tailLen)
+
+    // 1. 3D 좌표를 2D 화면 좌표로 투영 (잘라낸 최근 기록만 투영)
+    const pts: number[] = []
+    recentHistory.forEach((p) => {
+      const s = worldToScreen(p.x, p.y, cam, w, h)
+      if (!s.behindCamera) pts.push(s.x, s.y)
+    })
+
+    if (pts.length < 4) return // 선을 그리려면 최소 2개의 점(x,y 4개) 필요
+
+    // 2. 그라데이션 방향 설정 (꼬리 끝점 -> 로봇 현재 머리 위치)
+    const startX = pts[0]
+    const startY = pts[1]
+    const endX = pts[pts.length - 2]
+    const endY = pts[pts.length - 1]
+
+    const color = '176, 39, 245'
+    const alpha = 0.8
+    const weight = 9
+
+    tails.push({
+      id: robot.id,
+      points: pts,
+      strokeWidth: weight,
+      startX,
+      startY,
+      endX,
+      endY,
+      // 💡 핵심 2: 시작점(0)은 투명하게, 끝점(1)은 불투명하게 그라데이션 적용
+      colorStops: [
+        0, `rgba(${color}, 0)`,
+        1, `rgba(${color}, ${alpha})`
+      ]
+    })
+  })
+
+  return tails
+})
 </script>
 
 <template>
@@ -451,26 +462,42 @@ function onNodeDragEnd(nodeId: number, e: any) {
       <!-- ── Layer 3: playback trajectories ────────────────────────────── -->
       <v-layer>
 
-        <!-- 비선택 로봇: 그라데이션 꼬리 (3레이어 겹치기) -->
-        <template
-          v-for="tail in gradientTailConfigs"
-          :key="'tail-' + tail.robotIdx"
-        >
-          <v-line
-            v-for="(line, li) in tail.lines"
-            :key="li"
-            :config="{
-              points:      line.points,
-              stroke:      tail.color,
-              strokeWidth: line.strokeWidth,
-              opacity:     line.opacity,
-              lineCap:     'round',
-              lineJoin:    'round',
-              listening:   false,
-            }"
-          />
-        </template>
+        <!-- 모든 로봇: 그라데이션 꼬리 (3레이어 겹치기) -->
+<!--        <template-->
+<!--          v-for="tail in gradientTailConfigs"-->
+<!--          :key="'tail-' + tail.robotIdx"-->
+<!--        >-->
+<!--          <v-line-->
+<!--            v-for="(line, li) in tail.lines"-->
+<!--            :key="li"-->
+<!--            :config="{-->
+<!--              points:      line.points,-->
+<!--              stroke:      tail.color,-->
+<!--              strokeWidth: line.strokeWidth,-->
+<!--              opacity:     line.opacity,-->
+<!--              lineCap:     'round',-->
+<!--              lineJoin:    'round',-->
+<!--              listening:   false,-->
+<!--            }"-->
+<!--          />-->
+<!--        </template>-->
 
+        <v-line
+            v-for="tail in allRobotTails"
+            :key="'tail-' + tail.id"
+            :config="{
+      points: tail.points,
+      strokeWidth: tail.strokeWidth,
+      lineCap: 'round',
+      lineJoin: 'round',
+      listening: false,
+
+      // 💡 핵심: fill이 아니라 stroke 그라데이션 속성을 사용!
+      strokeLinearGradientStartPoint: { x: tail.startX, y: tail.startY },
+      strokeLinearGradientEndPoint: { x: tail.endX, y: tail.endY },
+      strokeLinearGradientColorStops: tail.colorStops
+    }"
+        />
         <!-- 선택 로봇: 전체 궤적 (실선) -->
         <v-line
           v-if="selectedTrajectoryPoints.length >= 4"
