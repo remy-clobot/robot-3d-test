@@ -198,15 +198,20 @@ function syncProjectedNodes() {
   const w = appStore.containerWidth
   const h = appStore.containerHeight
 
+
+  // 카메라가 현재 바라보는 중심(Target)
+  const tx = controls.target.x
+  const tz = controls.target.z
+
   // 1. 아주 작은 변화량(Delta)을 정의합니다.
   // 타원의 순수한 찌그러짐(Pitch에 의한 왜곡)만 추출하려면 투영에 사용하는두 점을 원점에 아주 미세하게 가깝게 두어, 심도(Depth) 변화에 따른 오차를 제거해야함
   // 수학적으로는 점 간 차이를 구하는 것에서 순간 변화률을 구하는 방식으로 바꾸는 것
   const DELTA = 0.001
 
 // 2. 1 대신 DELTA만큼만 이동한 좌표를 투영합니다.
-  const p0  = worldToScreen(0, 0, camera, w, h)
-  const p1x = worldToScreen(DELTA, 0, camera, w, h)
-  const p1z = worldToScreen(0, DELTA, camera, w, h)
+  const p0  = worldToScreen(tx, tz, camera, w, h)
+  const p1x = worldToScreen(tx + DELTA, tz, camera, w, h)
+  const p1z = worldToScreen(tx, tz + DELTA, camera, w, h)
 
 // 3. 차이를 구한 뒤, DELTA로 나누어 다시 1단위 기준의 스케일(기울기)로 복원합니다.
   const ux = (p1x.x - p0.x) / DELTA
@@ -234,8 +239,8 @@ function syncProjectedNodes() {
 
     const s = worldToScreen(node.x, node.y, camera, w, h)
 
-    pt.x = s.x
-    pt.y = s.y
+    pt.x = s.behindCamera ? -9999 : s.x
+    pt.y = s.behindCamera ? -9999 : s.y
   }
 
   // Project robot label anchor (slightly above robot top: y + 0.9)

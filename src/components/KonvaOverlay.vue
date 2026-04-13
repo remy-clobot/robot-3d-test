@@ -82,6 +82,11 @@ const linkConfigs = computed(() => {
   return mapStore.links.map((link) => {
     const from = nodeScreenPos(link.from)
     const to   = nodeScreenPos(link.to)
+
+    if (from.x === -9999 || to.x === -9999) {
+      return null
+    }
+
     const pts  = [from.x, from.y, to.x, to.y]
     const roadW = Math.max(2, s * 0.22)
     const dashLen = Math.max(4, s * 0.22)
@@ -105,7 +110,7 @@ const linkConfigs = computed(() => {
         listening:   false,
       },
     }
-  })
+  }).filter(config => config !== null)
 })
 
 // ─── nodes ────────────────────────────────────────────────────────────────────
