@@ -226,11 +226,11 @@ const selectedPlaybackIdx = computed(() => {
   return -1
 })
 
-const selectedRobotColor = computed(() =>
-  selectedPlaybackIdx.value >= 0
-    ? ROBOT_COLORS[selectedPlaybackIdx.value]
-    : ROBOT_COLORS[0],
-)
+// const selectedRobotColor = computed(() =>
+//   selectedPlaybackIdx.value >= 0
+//     ? ROBOT_COLORS[selectedPlaybackIdx.value]
+//     : ROBOT_COLORS[0],
+// )
 
 // ─── selected robot: full trajectory ─────────────────────────────────────────
 
@@ -279,13 +279,17 @@ const selectedFuturePoints = computed<number[]>(() => {
 
 // ─── moving arrows along future path ─────────────────────────────────────────
 
-const N_ARROWS    = 10
-const ARROW_HALF  = 8   // px, 화살표 반길이
+const N_ARROWS    = 20
+const ARROW_HALF  = 1   // px, 화살표 반길이
+const SPEED_FACTOR = 5
 
 const movingArrows = computed(() => {
   const pts = selectedFuturePoints.value
   if (pts.length < 4) return []
-  const t0 = arrowProgress.value
+
+  // 💡 arrowProgress 값을 SPEED_FACTOR로 나누어 진행 속도를 늦춤
+  const t0 = arrowProgress.value / SPEED_FACTOR
+
   const arrows: { points: number[] }[] = []
   for (let i = 0; i < N_ARROWS; i++) {
     const t   = (t0 + i / N_ARROWS) % 1
@@ -341,7 +345,7 @@ const gradientTailConfigs = computed(() => {
 
     result.push({
       robotIdx: i,
-      color:    ROBOT_COLORS[i],
+      color:    'rgb(159, 0, 255)',
       lines: [
         { points: pts,                  strokeWidth: 4, opacity: 0.15 }, // 전체
         { points: pts.slice(-n2 * 2),   strokeWidth: 6, opacity: 0.30 }, // 후반 2/3
@@ -469,12 +473,12 @@ function onNodeDragEnd(nodeId: number, e: any) {
           v-if="selectedTrajectoryPoints.length >= 4"
           :config="{
             points:      selectedTrajectoryPoints,
-            stroke:      selectedRobotColor,
-            strokeWidth: 2,
+            stroke:      'rgb(153, 148, 156)',
+            strokeWidth: 9,
             lineCap:     'round',
             lineJoin:    'round',
             listening:   false,
-            opacity:     0.8,
+            opacity:     0.5,
           }"
         />
 
@@ -484,7 +488,7 @@ function onNodeDragEnd(nodeId: number, e: any) {
           :config="{
             points:      selectedFuturePoints,
             stroke:      'rgb(176, 39, 245)',
-            strokeWidth: 9,
+            strokeWidth: 10,
             //dash:        [6, 5],
             lineCap:     'round',
             listening:   false,
@@ -505,20 +509,6 @@ function onNodeDragEnd(nodeId: number, e: any) {
             pointerWidth:  9,
             listening:     false,
           }"
-        />
-
-        <v-regular-polygon
-            v-for="(arrow, i) in movingArrows"
-            :key="'f-arrow-' + i"
-            :config="{
-              x: arrow.x,
-              y: arrow.y,
-              sides: 3,               // 삼각형
-              radius: 5,              // 크기
-              fill: '#FFFFFF',        // 보라색 대비 흰색
-              rotation: arrow.rotation, // 진행 방향 각도
-              listening: false,
-            }"
         />
 
       </v-layer>

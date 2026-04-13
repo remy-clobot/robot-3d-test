@@ -239,7 +239,7 @@ function drawTooltip1(robot: Robot, sx: number, sy: number, p: number) {
 
   // 박스 배경 (오른쪽 모서리 크게 둥글게)
   roundRectPath(bx, by, TOOLTIP_W, boxH, dir > 0 ? [6, 14, 14, 6] : [14, 6, 6, 14])
-  ctx.fillStyle = 'rgba(18, 18, 30, 0.94)'
+  ctx.fillStyle = 'rgba(18, 18, 30, 0.8)'
   ctx.fill()
 
   // 박스 테두리
@@ -341,7 +341,7 @@ function drawTooltip2(robot: Robot, sx: number, sy: number, p: number) {
 
   // 박스 배경
   roundRectPath(bx, by, TOOLTIP_W, boxH, dir > 0 ? [6, 14, 14, 6] : [14, 6, 6, 14])
-  ctx.fillStyle = 'rgba(18, 18, 30, 0.94)'
+  ctx.fillStyle = 'rgba(18, 18, 30, 0.8)'
   ctx.fill()
 
   // 박스 테두리
