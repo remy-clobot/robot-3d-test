@@ -91,13 +91,13 @@ const linkConfigs = computed(() => {
 
     const pts  = [from.x, from.y, to.x, to.y]
     const roadW = Math.max(2, s * 0.22)
-    const dashLen = Math.max(4, s * 0.22)
-    const gapLen  = Math.max(3, s * 0.18)
+   // const dashLen = Math.max(4, s * 0.22)
+   // const gapLen  = Math.max(3, s * 0.18)
     return {
       id:   link.id,
       road: {
         points:      pts,
-        stroke:      '#0b1e3e',
+        stroke:      '#3d3d3d',
         strokeWidth: roadW,
         lineCap:     'round',
         lineJoin:    'round',
@@ -105,9 +105,9 @@ const linkConfigs = computed(() => {
       },
       lane: {
         points:      pts,
-        stroke:      '#1e4e82',
-        strokeWidth: Math.max(1, roadW * 0.2),
-        dash:        [dashLen, gapLen],
+        stroke:      '#5d5d5d',
+        strokeWidth: 1,
+       // dash:        [dashLen, gapLen],
         lineCap:     'round',
         listening:   false,
       },
@@ -123,7 +123,7 @@ const nodeConfigs = computed(() => {
     const pos      = nodeScreenPos(node.id)
     const isZone   = !!node.label
     const isEdit   = appStore.mode === 'editing'
-    const isSel    = selectedNodeId.value === node.id
+    //const isSel    = selectedNodeId.value === node.id
     const rx = ellipseRX.value
     const ry = ellipseRY.value
     return {
@@ -133,9 +133,9 @@ const nodeConfigs = computed(() => {
       radiusX:     isZone ? Math.max(2, rx * 0.15) : Math.max(1, rx * 0.09),
       radiusY:     isZone ? Math.max(2, ry * 0.15) : Math.max(1, ry * 0.09),
       rotation:    ellipseRot.value,
-      fill:        isSel ? '#ffd43b' : isZone ? 'rgba(93, 146, 212, 0.5)' : '#0a2444',
-      stroke:      isZone ? '#447a99' : '#133857',
-      strokeWidth: 1,
+      fill:        '#9e9e9e',//isSel ? '#ffd43b' : isZone ? 'rgba(93, 146, 212, 0.5)' : '#0a2444',
+      stroke:      '#696969',//isZone ? '#447a99' : '#133857',
+      strokeWidth: 4,
       draggable:   isEdit,
       label:       node.label ?? '',
     }
@@ -214,7 +214,6 @@ function interpolatePolyline(
 
 // ─── which playback robot is selected (0, 1, 2, or -1) ───────────────────────
 
-const ROBOT_COLORS = ['#4a9eff', '#4aff9e', '#ff9e4a'] as const
 
 const selectedPlaybackIdx = computed(() => {
   const selId = appStore.selectedRobotId
@@ -235,6 +234,8 @@ const selectedPlaybackIdx = computed(() => {
 // ─── selected robot: full trajectory ─────────────────────────────────────────
 
 const selectedTrajectoryPoints = computed<number[]>(() => {
+  void mapStore.projectedVersion
+
   const selectedIdx = appStore.selectedRobotId
   if (selectedIdx === null || !appStore.threeCamera) return []
 
@@ -267,7 +268,9 @@ const selectedFuturePoints = computed<number[]>(() => {
   if (!frame) return []
   const w = appStore.containerWidth, h = appStore.containerHeight
 
-  const cur = worldToScreen(frame.x, frame.y, cam, w, h)
+
+
+  const cur = worldToScreen(frame.x, frame.y, cam, w, h) // 로봇의 현재 위치
   const pts: number[] = [cur.x, cur.y]
   const futureIds = frame.path.slice(frame.pathIndex + 1)
   for (const nid of futureIds) {
@@ -439,7 +442,7 @@ function onNodeDragEnd(nodeId: number, e: any) {
             text: node.label,
             fontSize: Math.max(7, Math.min(14, nodeScale * 0.30)),
             align: 'center',
-            fill: '#90c4e8',
+            fill: '#696969',
             listening: false,
           }"
         />
@@ -490,7 +493,9 @@ function onNodeDragEnd(nodeId: number, e: any) {
             stroke:      'rgb(176, 39, 245)',
             strokeWidth: 10,
             //dash:        [6, 5],
+
             lineCap:     'round',
+            lineJoin:    'round',
             listening:   false,
             opacity:     0.3,
           }"
@@ -503,6 +508,7 @@ function onNodeDragEnd(nodeId: number, e: any) {
           :config="{
             points:        arrow.points,
             fill:          '#615c63',
+            dash:        [6, 5],
             //stroke:        '#ffd43b',
             //strokeWidth:   2,
             pointerLength: 7,

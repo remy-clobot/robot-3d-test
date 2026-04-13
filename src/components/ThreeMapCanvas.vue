@@ -28,7 +28,7 @@ function initMapScene() {
   // Ground
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(100, 100),
-    new THREE.MeshBasicMaterial({ color: 0x16213e, transparent: true, opacity: 0.5, side: THREE.DoubleSide }),
+    new THREE.MeshBasicMaterial({ color: '#1f1e1e', transparent: true, opacity: 0.9, side: THREE.DoubleSide }),
   )
   ground.rotation.x = -Math.PI / 2
   ground.position.y = -0.01
