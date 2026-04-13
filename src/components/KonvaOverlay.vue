@@ -235,33 +235,35 @@ const selectedRobotColor = computed(() =>
 // ─── selected robot: full trajectory ─────────────────────────────────────────
 
 const selectedTrajectoryPoints = computed<number[]>(() => {
-  void mapStore.projectedVersion
-  void playback.currentIndex
-  if (appStore.mode !== 'monitoring') return []
-  const idx = selectedPlaybackIdx.value
-  if (idx === -1) return []
-  const cam = appStore.threeCamera
-  if (!cam) return []
-  const w = appStore.containerWidth, h = appStore.containerHeight
+  const selectedIdx = appStore.selectedRobotId
+  if (selectedIdx === null || !appStore.threeCamera) return []
+
+  // 인덱스 밀림 방지: ID 매칭이 안전하지만,
+  // 구조상 histories[selectedIdx]를 쓰신다면 아래와 같이 behindCamera 체크만 강화합니다.
+  const history = playback.histories[selectedIdx] || []
   const pts: number[] = []
-  for (const pt of playback.histories[idx]) {
-    const s = worldToScreen(pt.x, pt.y, cam, w, h)
-    pts.push(s.x, s.y)
-  }
+
+  history.forEach((p) => {
+    const s = worldToScreen(p.x, p.y, appStore.threeCamera!, appStore.containerWidth, appStore.containerHeight)
+    if (!s.behindCamera) { // 이제 behindCamera를 사용할 수 있습니다!
+      pts.push(s.x, s.y)
+    }
+  })
   return pts
 })
 
 // ─── selected robot: future path ─────────────────────────────────────────────
 
 const selectedFuturePoints = computed<number[]>(() => {
+  const selectedIdx = appStore.selectedRobotId
+  if (selectedIdx === null || !appStore.threeCamera) return []
   void mapStore.projectedVersion
   void playback.currentIndex
   if (appStore.mode !== 'monitoring') return []
-  const idx = selectedPlaybackIdx.value
-  if (idx === -1) return []
+
   const cam = appStore.threeCamera
   if (!cam) return []
-  const frame = playback.currentFrames[idx]
+  const frame = playback.currentFrames[selectedIdx]
   if (!frame) return []
   const w = appStore.containerWidth, h = appStore.containerHeight
 
@@ -277,7 +279,7 @@ const selectedFuturePoints = computed<number[]>(() => {
 
 // ─── moving arrows along future path ─────────────────────────────────────────
 
-const N_ARROWS    = 3
+const N_ARROWS    = 10
 const ARROW_HALF  = 8   // px, 화살표 반길이
 
 const movingArrows = computed(() => {
@@ -476,17 +478,17 @@ function onNodeDragEnd(nodeId: number, e: any) {
           }"
         />
 
-        <!-- 선택 로봇: 앞으로 갈 경로 (점선) -->
+        <!-- 선택 로봇: 앞으로 갈 경로 -->
         <v-line
           v-if="selectedFuturePoints.length >= 4"
           :config="{
             points:      selectedFuturePoints,
-            stroke:      '#ffd43b',
-            strokeWidth: 1.5,
-            dash:        [6, 5],
+            stroke:      'rgb(176, 39, 245)',
+            strokeWidth: 9,
+            //dash:        [6, 5],
             lineCap:     'round',
             listening:   false,
-            opacity:     0.5,
+            opacity:     0.3,
           }"
         />
 
@@ -496,13 +498,27 @@ function onNodeDragEnd(nodeId: number, e: any) {
           :key="'arrow-' + ai"
           :config="{
             points:        arrow.points,
-            fill:          '#ffd43b',
-            stroke:        '#ffd43b',
-            strokeWidth:   2,
-            pointerLength: 9,
-            pointerWidth:  7,
+            fill:          '#615c63',
+            //stroke:        '#ffd43b',
+            //strokeWidth:   2,
+            pointerLength: 7,
+            pointerWidth:  9,
             listening:     false,
           }"
+        />
+
+        <v-regular-polygon
+            v-for="(arrow, i) in movingArrows"
+            :key="'f-arrow-' + i"
+            :config="{
+              x: arrow.x,
+              y: arrow.y,
+              sides: 3,               // 삼각형
+              radius: 5,              // 크기
+              fill: '#FFFFFF',        // 보라색 대비 흰색
+              rotation: arrow.rotation, // 진행 방향 각도
+              listening: false,
+            }"
         />
 
       </v-layer>

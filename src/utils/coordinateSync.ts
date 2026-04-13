@@ -12,12 +12,13 @@ export function worldToScreen(
   camera: THREE.Camera,
   width: number,
   height: number,
-): { x: number; y: number } {
+): { x: number; y: number; behindCamera: boolean } {
   _vec3.set(worldX, 0, worldZ)
   _vec3.project(camera)
   return {
     x: (_vec3.x * 0.5 + 0.5) * width,
     y: (-_vec3.y * 0.5 + 0.5) * height,
+    behindCamera: _vec3.z > 1
   }
 }
 
