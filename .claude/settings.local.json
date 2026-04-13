@@ -4,7 +4,15 @@
       "Bash(npm install:*)",
       "Bash(npx vue-tsc:*)",
       "Bash(npx vite:*)",
-      "Bash(npm ls:*)"
+      "Bash(npm ls:*)",
+      "Bash(node:*)",
+      "Bash(node -e ':*)",
+      "Read(//tmp/**)",
+      "Bash(xargs grep:*)",
+      "Bash(python3 -c \"from PIL import Image; img = Image.open\\('C:/Projects/robot-3d-test/refs/map_250214.png'\\); print\\(img.size, img.mode\\)\")",
+      "Bash(python -c \"from PIL import Image; img = Image.open\\('C:/Projects/robot-3d-test/refs/map_250214.png'\\); print\\(img.size, img.mode\\)\")",
+      "Bash(npx tsc:*)",
+      "Bash(grep:*)"
     ]
   }
 }

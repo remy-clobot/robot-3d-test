@@ -2,6 +2,7 @@
 import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useAppStore } from '../stores/appStore'
 import { useMapStore } from '../stores/mapStore'
+import type { Robot } from '../data/sampleData'
 
 const appStore = useAppStore()
 const mapStore = useMapStore()
@@ -11,281 +12,520 @@ let ctx: CanvasRenderingContext2D | null = null
 
 // ─── visual constants ─────────────────────────────────────────────────────────
 
-const FONT       = '14px/1 system-ui, sans-serif'
-const FONT_SMALL = '12px/1 system-ui, sans-serif'
+const FONT        = '14px/1 system-ui, sans-serif'
+const FONT_SMALL  = '12px/1 system-ui, sans-serif'
+const FONT_TITLE  = '600 14px/1 system-ui, sans-serif'
 
-
-// robot name badge
-const PILL_H     = 22
-const PILL_GAP   = 0     // gap between pill bottom and line (= anchor offset from sy)
-const PADDING_X  = 8     // badge padding
-
-// line
-const V          = 100    // vertical segment (px up)
-const H          = 200   // horizontal segment
-const SLOPE      = 30    // 얼마나 꺾일지
+// label pill
+const PILL_H    = 22
+const PADDING_X = 8
 
 // tooltip box
-const TOOLTIP_W  = 152 // width
-const ROW_H      = 22 // height for each row
-const BOX_PAD    = 10 // padding
+const TOOLTIP_W       = 224
+const TOOLTIP_PAD     = 12
+const ROW_H           = 22
+const TITLE_H         = 36    // 툴팁_1 타이틀 행 높이
+const BOX_OFFSET_Y    = 155   // 로봇 위쪽 거리
 
 // animation
-const ANIM_MS    = 400 // duration
+const ANIM_ENTER_MS = 380
+const ANIM_EXIT_MS  = 200
 
 const STATUS_LABEL: Record<string, string> = {
   normal:  '정상',
   warning: '경고',
   error:   '오류',
 }
+const STATUS_COLORS: Record<string, string> = {
+  normal:  '#2ecc71',
+  warning: '#f39c12',
+  error:   '#e74c3c',
+}
 const EFFECTS = [
-  { key: 'blink'       as const, label: 'Blink'       },
-  { key: 'errorMarker' as const, label: 'Error Marker' },
-  { key: 'shadowDisc'  as const, label: 'Shadow Disc'  },
+  { key: 'blink'       as const, label: 'Blink'        },
+  { key: 'errorMarker' as const, label: 'Error Marker'  },
+  { key: 'shadowDisc'  as const, label: 'Shadow Disc'   },
 ]
 
 // ─── animation state ──────────────────────────────────────────────────────────
 
 let animProgress  = 0
+let animMode: 'in' | 'out' | 'shown' | 'idle' = 'idle'
 let animRafId     = 0
 let animStartTime = 0
+let activeRobotIdx: number | null = null  // 사라짐 애니메이션 중에도 유지
 
-function easeOut(t: number) { return 1 - Math.pow(1 - t, 3) }
+function easeOutCubic(t: number) { return 1 - Math.pow(1 - t, 3) }
+function easeInCubic(t:  number) { return t * t * t }
 
 // ─── path helpers ─────────────────────────────────────────────────────────────
 
-/** Position along bent line (anchor→corner→end) at normalized t. */
-function getPointOnPath(
-  ax: number, ay: number,
-  cx: number, cy: number,
-  ex: number, ey: number,
-  t: number,
-): { x: number; y: number } {
-  const seg1 = Math.hypot(cx - ax, cy - ay)
-  const seg2 = Math.hypot(ex - cx, ey - cy)
-  const dist  = t * (seg1 + seg2)
-  if (dist <= seg1) {
-    const f = seg1 === 0 ? 0 : dist / seg1
-    return { x: ax + (cx - ax) * f, y: ay + (cy - ay) * f }
-  }
-  const f = seg2 === 0 ? 0 : (dist - seg1) / seg2
-  return { x: cx + (ex - cx) * f, y: cy + (ey - cy) * f }
-}
-
-/** Draw a rounded-rect path (no fill/stroke). */
-function roundRectPath(x: number, y: number, w: number, h: number, r: number) {
+function roundRectPath(x: number, y: number, w: number, h: number, r: number | number[]) {
   if (!ctx) return
+  const [tl, tr, br, bl] = Array.isArray(r) ? r : [r, r, r, r]
   ctx.beginPath()
-  ctx.moveTo(x + r, y)
-  ctx.lineTo(x + w - r, y)
-  ctx.arcTo(x + w, y,     x + w, y + r,     r)
-  ctx.lineTo(x + w, y + h - r)
-  ctx.arcTo(x + w, y + h, x + w - r, y + h, r)
-  ctx.lineTo(x + r, y + h)
-  ctx.arcTo(x,     y + h, x,     y + h - r, r)
-  ctx.lineTo(x,     y + r)
-  ctx.arcTo(x,     y,     x + r, y,         r)
+  ctx.moveTo(x + tl, y)
+  ctx.lineTo(x + w - tr, y)
+  ctx.arcTo(x + w, y,     x + w, y + tr,   tr)
+  ctx.lineTo(x + w, y + h - br)
+  ctx.arcTo(x + w, y + h, x + w - br, y + h, br)
+  ctx.lineTo(x + bl, y + h)
+  ctx.arcTo(x,     y + h, x,     y + h - bl, bl)
+  ctx.lineTo(x,     y + tl)
+  ctx.arcTo(x,     y,     x + tl, y,          tl)
   ctx.closePath()
 }
 
-/** Draw a label pill centered at (cx, cy). */
-function drawPill(
-    label: string,
-    x: number,
-    y: number,
-    align: 'center' | 'left' | 'right' = 'center'
-) {
+// ─── label pill ──────────────────────────────────────────────────────────────
+
+function drawPill(label: string, x: number, y: number, align: 'center' | 'left' | 'right' = 'center') {
   if (!ctx) return
   ctx.font = FONT
   const tw   = ctx.measureText(label).width
   const boxW = tw + PADDING_X * 2
-
-  // 정렬 기준에 따라 박스의 시작점(bx) 계산
-  let bx = x - boxW / 2           // 기본값: 중앙 정렬
-  if (align === 'left') bx = x    // 좌측 정렬: x에서 시작
-  if (align === 'right') bx = x - boxW // 우측 정렬: x에서 끝남
-
+  let bx = x - boxW / 2
+  if (align === 'left')  bx = x
+  if (align === 'right') bx = x - boxW
   const by = y - PILL_H / 2
-
   roundRectPath(bx, by, boxW, PILL_H, 5)
   ctx.fillStyle = 'rgba(15, 15, 30, 0.78)'
   ctx.fill()
-
   ctx.textBaseline = 'middle'
   ctx.fillStyle    = '#dee2e6'
   ctx.fillText(label, bx + PADDING_X, y)
+}
+
+function drawCustomPill(
+  robot: Robot,
+  x: number,
+  y: number,
+  align: 'center' | 'left' | 'right' = 'center',
+  selected = false,
+) {
+  if (!ctx) return
+  const statusColor = STATUS_COLORS[robot.status] ?? '#868e96'
+  const ICON_W  = 3
+  const ICON_H  = 10
+  const GAP     = 6
+  const CPILL_H = 28
+  const RING_R  = CPILL_H / 2 - 2
+  const R_RIGHT = CPILL_H / 2
+  const R_LEFT  = 5
+
+  ctx.font = FONT
+  const textW = ctx.measureText(`#${robot.id}`).width
+  const boxW  = selected
+    ? textW + PADDING_X * 2
+    : PADDING_X + ICON_W + GAP + textW + GAP + CPILL_H
+  const boxH = CPILL_H
+
+  let bx = x - boxW / 2
+  if (align === 'left')  bx = x
+  if (align === 'right') bx = x - boxW
+  const by = y - boxH / 2
+
+  ctx.beginPath()
+  ctx.roundRect(bx, by, boxW, boxH, selected ? R_LEFT : [R_LEFT, R_RIGHT, R_RIGHT, R_LEFT])
+  ctx.fillStyle = 'rgba(15, 15, 30, 0.82)'
+  ctx.fill()
+
+  if (!selected) {
+    ctx.beginPath()
+    ctx.roundRect(bx, by, boxW, boxH, [R_LEFT, R_RIGHT, R_RIGHT, R_LEFT])
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.14)'
+    ctx.lineWidth   = 1
+    ctx.stroke()
+  }
+
+  if (selected) {
+    ctx.font = FONT; ctx.fillStyle = '#dee2e6'; ctx.textBaseline = 'middle'
+    ctx.fillText(`#${robot.id}`, bx + PADDING_X, y)
+    return
+  }
+
+  const iconX = bx + PADDING_X
+  const iconY = y - ICON_H / 2
+  ctx.fillStyle = statusColor
+  ctx.beginPath()
+  ctx.roundRect(iconX, iconY, ICON_W, ICON_H, 1.5)
+  ctx.fill()
+
+  ctx.font = FONT; ctx.fillStyle = '#dee2e6'; ctx.textBaseline = 'middle'
+  ctx.fillText(`#${robot.id}`, iconX + ICON_W + GAP, y)
+
+  const ringCx = bx + boxW - R_RIGHT
+  const ringCy = y
+  const progress = (robot.workProgress ?? 0) / 100
+
+  ctx.beginPath()
+  ctx.arc(ringCx, ringCy, RING_R, 0, Math.PI * 2)
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.06)'
+  ctx.fill()
+
+  ctx.beginPath()
+  ctx.arc(ringCx, ringCy, RING_R - 1, 0, Math.PI * 2)
+  ctx.strokeStyle = 'rgba(255,255,255,0.13)'; ctx.lineWidth = 1.5; ctx.stroke()
+
+  if (progress > 0) {
+    ctx.beginPath()
+    ctx.arc(ringCx, ringCy, RING_R - 1, -Math.PI / 2, -Math.PI / 2 + progress * Math.PI * 2)
+    ctx.strokeStyle = statusColor; ctx.lineWidth = 1.5; ctx.stroke()
+  }
+
+  ctx.font = '8px/1 system-ui, sans-serif'
+  ctx.fillStyle = 'rgba(220, 226, 230, 0.6)'; ctx.textBaseline = 'middle'; ctx.textAlign = 'center'
+  ctx.fillText(String(robot.workProgress ?? 0), ringCx, ringCy)
+  ctx.textAlign = 'left'
+}
+
+// ─── tooltip geometry helper ──────────────────────────────────────────────────
+
+function getTooltipBoxHeight(robot: Robot): number {
+  const active    = EFFECTS.filter(e => robot[e.key])
+  const rowCount  = 4 + active.length   // 상태, 진행률, 위치, 빈줄구분, 활성효과들
+  const dividerH  = active.length > 0 ? 10 : 0
+  return TOOLTIP_PAD * 2 + rowCount * ROW_H + dividerH
+}
+
+function getBoxOrigin(sx: number, sy: number, boxH: number, w: number, _h: number) {
+  const dir = sx < w * 0.55 ? 1 : -1
+  const bx  = sx - TOOLTIP_W / 2 // 박스 중앙 = 로봇 x → 연결선 수직
+  const by  = sy - BOX_OFFSET_Y - boxH / 2 // 툴팁 박스 상단 y 좌표
+  // 선은 항상 박스 하단 정 중앙에 연결
+  const anchorX = bx + TOOLTIP_W / 2
+  const anchorY = by + boxH
+  return { bx, by, anchorX, anchorY, dir }
+}
+
+// ─── tooltip 1: 타이틀 박스 내부 ─────────────────────────────────────────────
+
+function drawTooltip1(robot: Robot, sx: number, sy: number, p: number) {
+  if (!ctx) return
+  const w        = appStore.containerWidth
+  const h        = appStore.containerHeight
+  const boxH     = getTooltipBoxHeight(robot) + TITLE_H
+  const { bx, by, anchorX, anchorY, dir } = getBoxOrigin(sx, sy, boxH, w, h)
+  const statusColor = STATUS_COLORS[robot.status] ?? '#868e96'
+
+  // ── 직선 애니메이션 ──
+  const tipX = sx + (anchorX - sx) * p
+  const tipY = sy + (anchorY - sy) * p
+
+  ctx.save()
+  ctx.shadowColor = 'rgba(80,120,200,0.35)'
+  ctx.shadowBlur  = 6
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)'
+  ctx.lineWidth   = 1.5
+  ctx.lineCap     = 'round'
+  ctx.beginPath()
+  ctx.moveTo(sx, sy)
+  ctx.lineTo(tipX, tipY)
+  ctx.stroke()
+  ctx.restore()
+
+  if (p < 0.45) return
+
+  const boxAlpha  = Math.min((p - 0.45) / 0.45, 1)
+  const scaleFrom = 0.88
+  const scale     = scaleFrom + (1 - scaleFrom) * boxAlpha
+  const pivotX    = bx + TOOLTIP_W / 2
+  const pivotY    = by + boxH
+
+  ctx.save()
+  ctx.globalAlpha = boxAlpha
+  ctx.translate(pivotX, pivotY)
+  ctx.scale(scale, scale)
+  ctx.translate(-pivotX, -pivotY)
+
+  // 박스 배경 (오른쪽 모서리 크게 둥글게)
+  roundRectPath(bx, by, TOOLTIP_W, boxH, dir > 0 ? [6, 14, 14, 6] : [14, 6, 6, 14])
+  ctx.fillStyle = 'rgba(18, 18, 30, 0.94)'
+  ctx.fill()
+
+  // 박스 테두리
+  roundRectPath(bx, by, TOOLTIP_W, boxH, dir > 0 ? [6, 14, 14, 6] : [14, 6, 6, 14])
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)'
+  ctx.lineWidth   = 1
+  ctx.stroke()
+
+  // ── 타이틀 행 ──
+  ctx.textBaseline = 'middle'
+  ctx.font         = FONT_TITLE
+  ctx.fillStyle    = '#f1f3f5'
+  ctx.fillText(`Robot #${robot.id}`, bx + TOOLTIP_PAD, by + TITLE_H / 2)
+
+  // 타이틀 행 우측 상태 dot
+  const dotR = 5
+  const dotX = bx + TOOLTIP_W - TOOLTIP_PAD - dotR
+  const dotY = by + TITLE_H / 2
+  ctx.beginPath()
+  ctx.arc(dotX, dotY, dotR, 0, Math.PI * 2)
+  ctx.fillStyle = statusColor
+  ctx.fill()
+
+  // 타이틀 구분선
+  ctx.beginPath()
+  ctx.moveTo(bx + TOOLTIP_PAD, by + TITLE_H)
+  ctx.lineTo(bx + TOOLTIP_W - TOOLTIP_PAD, by + TITLE_H)
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)'
+  ctx.lineWidth   = 1
+  ctx.stroke()
+
+  // ── 내용 행 ──
+  let ry = by + TITLE_H + TOOLTIP_PAD
+  drawContentRows(robot, bx, ry, statusColor)
+
+  ctx.restore()
+}
+
+// ─── tooltip 2: 타이틀 박스 외부 ─────────────────────────────────────────────
+
+function drawTooltip2(robot: Robot, sx: number, sy: number, p: number) {
+  if (!ctx) return
+  const w        = appStore.containerWidth
+  const h        = appStore.containerHeight
+  const boxH     = getTooltipBoxHeight(robot)
+  const { bx, by, anchorX, anchorY, dir } = getBoxOrigin(sx, sy, boxH, w, h)
+  const statusColor = STATUS_COLORS[robot.status] ?? '#868e96'
+
+  // ── 직선 애니메이션 ──
+  const tipX = sx + (anchorX - sx) * p
+  const tipY = sy + (anchorY - sy) * p
+
+  ctx.save()
+  ctx.shadowColor = 'rgba(80,120,200,0.35)'
+  ctx.shadowBlur  = 6
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)'
+  ctx.lineWidth   = 1.5
+  ctx.lineCap     = 'round'
+  ctx.beginPath()
+  ctx.moveTo(sx, sy)
+  ctx.lineTo(tipX, tipY)
+  ctx.stroke()
+  ctx.restore()
+
+  if (p < 0.45) return
+
+  const boxAlpha  = Math.min((p - 0.45) / 0.45, 1)
+  const scaleFrom = 0.88
+  const scale     = scaleFrom + (1 - scaleFrom) * boxAlpha
+  const pivotX    = bx + TOOLTIP_W / 2
+  const pivotY    = by + boxH
+
+  ctx.save()
+  ctx.globalAlpha = boxAlpha
+  ctx.translate(pivotX, pivotY)
+  ctx.scale(scale, scale)
+  ctx.translate(-pivotX, -pivotY)
+
+  // ── 외부 타이틀 텍스트 (박스 위, 우측 정렬) ──
+  const TITLE_OFFSET_Y = 20
+  ctx.font         = FONT_TITLE
+  ctx.fillStyle    = '#f1f3f5'
+  ctx.textBaseline = 'middle'
+  ctx.textAlign    = dir > 0 ? 'right' : 'left'
+  ctx.fillText(`Robot #${robot.id}`, dir > 0 ? bx + TOOLTIP_W : bx, by - TITLE_OFFSET_Y / 2)
+  ctx.textAlign = 'left'
+
+  // 상태 dot (타이틀 옆)
+  const titleW = ctx.measureText(`Robot #${robot.id}`).width
+  const dotR   = 4
+  const dotX   = dir > 0
+    ? bx + TOOLTIP_W - titleW - dotR * 3 - 4
+    : bx + titleW + dotR * 2
+  const dotY = by - TITLE_OFFSET_Y / 2
+  ctx.beginPath()
+  ctx.arc(dotX, dotY, dotR, 0, Math.PI * 2)
+  ctx.fillStyle = statusColor
+  ctx.fill()
+
+  // 박스 배경
+  roundRectPath(bx, by, TOOLTIP_W, boxH, dir > 0 ? [6, 14, 14, 6] : [14, 6, 6, 14])
+  ctx.fillStyle = 'rgba(18, 18, 30, 0.94)'
+  ctx.fill()
+
+  // 박스 테두리
+  roundRectPath(bx, by, TOOLTIP_W, boxH, dir > 0 ? [6, 14, 14, 6] : [14, 6, 6, 14])
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)'
+  ctx.lineWidth   = 1
+  ctx.stroke()
+
+  // ── 내용 행 ──
+  drawContentRows(robot, bx, by + TOOLTIP_PAD, statusColor)
+
+  ctx.restore()
+}
+
+// ─── shared content rows ──────────────────────────────────────────────────────
+
+function drawContentRows(robot: Robot, bx: number, startY: number, statusColor: string) {
+  if (!ctx) return
+  let ry = startY
+
+  // 상태 행
+  ctx.font      = FONT_SMALL
+  ctx.fillStyle = 'rgba(134, 142, 150, 0.8)'
+  ctx.textBaseline = 'middle'
+  ctx.fillText('상태', bx + TOOLTIP_PAD, ry + ROW_H / 2)
+
+  ctx.font      = FONT_SMALL
+  ctx.fillStyle = statusColor
+  ctx.textAlign = 'right'
+  ctx.fillText(STATUS_LABEL[robot.status] ?? robot.status, bx + TOOLTIP_W - TOOLTIP_PAD, ry + ROW_H / 2)
+  ctx.textAlign = 'left'
+  ry += ROW_H
+
+  // 진행률 행
+  ctx.font      = FONT_SMALL
+  ctx.fillStyle = 'rgba(134, 142, 150, 0.8)'
+  ctx.fillText('진행률', bx + TOOLTIP_PAD, ry + ROW_H / 2)
+
+  const barW   = 60
+  const barH   = 4
+  const barX   = bx + TOOLTIP_W - TOOLTIP_PAD - barW
+  const barY   = ry + ROW_H / 2 - barH / 2
+  const prog   = (robot.workProgress ?? 0) / 100
+
+  ctx.beginPath()
+  ctx.roundRect(barX, barY, barW, barH, 2)
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.1)'
+  ctx.fill()
+
+  if (prog > 0) {
+    ctx.beginPath()
+    ctx.roundRect(barX, barY, barW * prog, barH, 2)
+    ctx.fillStyle = statusColor
+    ctx.fill()
+  }
+
+  ctx.font      = '10px/1 system-ui, sans-serif'
+  ctx.fillStyle = '#adb5bd'
+  ctx.textAlign = 'right'
+  ctx.fillText(`${robot.workProgress ?? 0}%`, barX - 6, ry + ROW_H / 2)
+  ctx.textAlign = 'left'
+  ry += ROW_H
+
+  // 위치 행
+  ctx.font      = FONT_SMALL
+  ctx.fillStyle = 'rgba(134, 142, 150, 0.8)'
+  ctx.fillText('위치', bx + TOOLTIP_PAD, ry + ROW_H / 2)
+
+  ctx.font      = '11px/1 monospace, sans-serif'
+  ctx.fillStyle = '#adb5bd'
+  ctx.textAlign = 'right'
+  ctx.fillText(
+    `(${robot.x.toFixed(1)}, ${robot.y.toFixed(1)}, ${robot.z.toFixed(1)})`,
+    bx + TOOLTIP_W - TOOLTIP_PAD,
+    ry + ROW_H / 2,
+  )
+  ctx.textAlign = 'left'
+  ry += ROW_H
+
+  // 활성 효과
+  const active = EFFECTS.filter(e => robot[e.key])
+  if (active.length > 0) {
+    ry += 3
+    ctx.beginPath()
+    ctx.moveTo(bx + TOOLTIP_PAD, ry)
+    ctx.lineTo(bx + TOOLTIP_W - TOOLTIP_PAD, ry)
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)'
+    ctx.lineWidth   = 1
+    ctx.stroke()
+    ry += 7
+
+    ctx.font      = '11px/1 system-ui, sans-serif'
+    ctx.fillStyle = 'rgba(134, 142, 150, 0.7)'
+    for (const e of active) {
+      ctx.fillText(`· ${e.label}`, bx + TOOLTIP_PAD, ry + ROW_H / 2)
+      ry += ROW_H
+    }
+  }
 }
 
 // ─── main draw ────────────────────────────────────────────────────────────────
 
 function draw() {
   if (!ctx) return
-  const w      = appStore.containerWidth
-  const h      = appStore.containerHeight
-  const selIdx = appStore.selectedRobotId
+  const w   = appStore.containerWidth
+  const h   = appStore.containerHeight
 
   ctx.clearRect(0, 0, w, h)
   if (appStore.mode !== 'monitoring') return
 
   ctx.font = FONT
 
-  // ── regular labels (skip selected robot) ──────────────────────────────────
+  // ── 일반 라벨 (activeRobot 제외) ─────────────────────────────────────────
   for (let i = 0; i < mapStore.robots.length; i++) {
-    if (i === selIdx) continue
+    if (i === activeRobotIdx) continue
     const robot = mapStore.robots[i]
     const pt    = mapStore.projectedRobots.get(robot.id)
     if (!pt) continue
     const { x: sx, y: sy } = pt
     if (sx < -200 || sx > w + 200 || sy < -200 || sy > h + 200) continue
 
-    //drawPill(`#${robot.id}`, sx, sy - PILL_GAP - PILL_H / 2)
-    drawPill(`#${robot.id}`, sx, sy)
+    const sy_offset = sy - 20
+    if (mapStore.labelType === 'custom') {
+      drawCustomPill(robot, sx, sy_offset)
+    } else {
+      drawPill(`#${robot.id}`, sx, sy_offset)
+    }
   }
 
-  // ── selected robot tooltip ─────────────────────────────────────────────────
-  if (selIdx === null) return
-  const robot = mapStore.robots[selIdx]
+  // ── 선택/사라짐 툴팁 ─────────────────────────────────────────────────────
+  if (activeRobotIdx === null) return
+  const robot = mapStore.robots[activeRobotIdx]
   if (!robot) return
   const pt = mapStore.projectedRobots.get(robot.id)
   if (!pt) return
   const { x: sx, y: sy } = pt
   if (sx < -200 || sx > w + 200 || sy < -200 || sy > h + 200) return
 
-  const p   = animProgress
-  const dir = sx < w * 0.6 ? 1 : -1
+  const p = animProgress
 
-  // Bent line geometry
-  // Line starts at bottom of where the label pill would be
-  const ax = sx
-  const ay = sy
-  //const ay = sy - PILL_GAP - PILL_H / 2   // label-center height = line start
-
-  const cx = ax + SLOPE * dir
-  const cy = ay - V
-
-  const ex = ax + dir * H
-  const ey = cy                            // horizontal line y
-
-  // ── white bent line, drawn up to current progress ──────────────────────
-  const tip = getPointOnPath(ax, ay, cx, cy, ex, ey, p)
-
-  ctx.save()
-  ctx.shadowColor = '#3a7578'
-  ctx.shadowBlur = 5
-
-  //ctx.strokeStyle = '#00f3ff' // 👈 네온 파랑색 (Cyan 계열)
-   ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)'
-  ctx.lineWidth   = 1.5
-  ctx.lineCap     = 'round'
-  ctx.lineJoin    = 'round'
-  ctx.beginPath()
-  ctx.moveTo(ax, ay)
-
-  const distDone = p * (V + H)
-  if (distDone <= V) {
-    ctx.lineTo(tip.x, tip.y)
+  if (mapStore.tooltipType === 'tooltip2') {
+    drawTooltip2(robot, sx, sy, p)
   } else {
-    ctx.lineTo(cx, cy)
-    ctx.lineTo(tip.x, tip.y)
-  }
-  ctx.stroke()
-  ctx.restore()
-
-  // ── robot name label — appears above the line end (top-right of the L) ──
-  //    fades in as the horizontal segment draws
-  const horzFraction = distDone <= V ? 0 : (distDone - V) / H
-  if (horzFraction > 0) {
-    const labelCy = ey - PILL_H / 2 - 4
-
-    // 선이 오른쪽(1)으로 뻗으면 배지는 선의 끝점에서 끝나야 하므로 'right' 정렬
-    // 선이 왼쪽(-1)으로 뻗으면 배지는 선의 끝점에서 시작해야 하므로 'left' 정렬
-    const align = dir > 0 ? 'right' : 'left'
-
-    ctx.save()
-    ctx.globalAlpha = Math.min(horzFraction / 0.5, 1)
-
-    // tip.x를 그대로 넘기면서 align 옵션만 부여
-    drawPill(`#${robot.id}`, tip.x, labelCy, align)
-
-    ctx.restore()
-  }
-
-  // ── tooltip detail box — attached directly below the horizontal line ────
-  //    fades in once the line is ~70% done
-  if (p > 0.7) {
-    const boxAlpha = Math.min((p - 0.7) / 0.3, 1)
-
-    const active = EFFECTS.filter(e => robot[e.key])
-    const rowCount = 1 + active.length
-    const dividerH = active.length > 0 ? 10 : 0
-    const boxH = BOX_PAD * 2 + rowCount * ROW_H + dividerH
-
-    const offset_x = (dir>0)? TOOLTIP_W : 0
-    const offset_y = 1
-    // Box anchored to the line end, top edge flush with horizontal line
-    const bx = ex - offset_x
-    const by = ey + offset_y     // no gap — box top is at the line y
-
-    ctx.save()
-    ctx.globalAlpha = boxAlpha
-
-    // Background
-    roundRectPath(bx, by, TOOLTIP_W, boxH, 6)
-    ctx.fillStyle = 'rgba(12, 12, 18, 0.92)'
-    ctx.fill()
-
-    // Thin top border matching the line
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)'
-    ctx.lineWidth   = 1
-    ctx.beginPath()
-    ctx.moveTo(bx + 6, by)
-    ctx.lineTo(bx + TOOLTIP_W - 6, by)
-    ctx.stroke()
-
-    ctx.textBaseline = 'middle'
-    let ry = by + BOX_PAD
-
-    // Status row
-    ctx.font      = FONT
-    ctx.fillStyle = '#e8e8e8'
-    ctx.fillText(STATUS_LABEL[robot.status] ?? robot.status, bx + BOX_PAD, ry + ROW_H / 2)
-    ry += ROW_H
-
-    // Effects (if any)
-    if (active.length > 0) {
-      ry += 3
-      ctx.strokeStyle = 'rgba(255,255,255,0.08)'
-      ctx.lineWidth   = 1
-      ctx.beginPath()
-      ctx.moveTo(bx + BOX_PAD, ry)
-      ctx.lineTo(bx + TOOLTIP_W - BOX_PAD, ry)
-      ctx.stroke()
-      ry += 7
-
-      ctx.font      = FONT_SMALL
-      ctx.fillStyle = '#888'
-      for (const e of active) {
-        ctx.fillText(e.label, bx + BOX_PAD, ry + ROW_H / 2)
-        ry += ROW_H
-      }
-    }
-
-    ctx.restore()
+    drawTooltip1(robot, sx, sy, p)
   }
 }
 
 // ─── animation ────────────────────────────────────────────────────────────────
 
-function startAnim() {
-  cancelAnimationFrame(animRafId)
+function startEnterAnim() {
+  animMode      = 'in'
   animStartTime = performance.now()
   animProgress  = 0
 
   function step() {
-    const raw = Math.min((performance.now() - animStartTime) / ANIM_MS, 1)
-    animProgress = easeOut(raw)
+    const raw    = Math.min((performance.now() - animStartTime) / ANIM_ENTER_MS, 1)
+    animProgress = easeOutCubic(raw)
     draw()
-    if (raw < 1) animRafId = requestAnimationFrame(step)
+    if (raw < 1) {
+      animRafId = requestAnimationFrame(step)
+    } else {
+      animMode = 'shown'
+    }
+  }
+  animRafId = requestAnimationFrame(step)
+}
+
+function startExitAnim() {
+  animMode      = 'out'
+  animStartTime = performance.now()
+  const startP  = animProgress  // 현재 progress에서 시작 (중간 상태에서도 자연스럽게)
+
+  function step() {
+    const raw    = Math.min((performance.now() - animStartTime) / ANIM_EXIT_MS, 1)
+    animProgress = startP * (1 - easeInCubic(raw))
+    draw()
+    if (raw < 1) {
+      animRafId = requestAnimationFrame(step)
+    } else {
+      animProgress  = 0
+      animMode      = 'idle'
+      activeRobotIdx = null
+      draw()
+    }
   }
   animRafId = requestAnimationFrame(step)
 }
@@ -304,16 +544,22 @@ function resize() {
 
 watch(() => mapStore.projectedVersion, draw)
 watch(() => mapStore.robotVersion,     draw)
-watch(() => appStore.selectedRobotId, (newId) => {
+
+watch(() => appStore.selectedRobotId, (newId, oldId) => {
   cancelAnimationFrame(animRafId)
+
   if (newId !== null) {
-    startAnim()
+    // 다른 로봇 선택 or 처음 선택 → 즉시 교체
+    activeRobotIdx = newId
+    startEnterAnim()
   } else {
-    animProgress = 0
-    draw()
+    // 선택 해제 → 사라짐 애니메이션 (oldId 로봇 유지)
+    activeRobotIdx = oldId
+    startExitAnim()
   }
 })
-watch(() => appStore.mode,                                       () => { resize(); draw() })
+
+watch(() => appStore.mode, () => { resize(); draw() })
 watch(() => [appStore.containerWidth, appStore.containerHeight], resize)
 
 onMounted(() => {

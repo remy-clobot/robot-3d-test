@@ -19,3 +19,23 @@ export function createRobotGeometry(type: RobotType): BufferGeometry {
     }
   }
 }
+
+/**
+ * Returns a slightly enlarged geometry for the outline mesh.
+ * Pre-sized so the outline shader needs no per-vertex inflation,
+ * avoiding artifacts on curved surfaces (Cylinder) and corners (Box).
+ */
+export function createOutlineGeometry(type: RobotType): BufferGeometry {
+  const d = 0.05
+  switch (type) {
+    case 'Box':
+      return new BoxGeometry(0.6 + d * 2, 0.8 + d * 2, 0.6 + d * 2)
+    case 'Cylinder':
+      return new CylinderGeometry(0.3 + d, 0.3 + d, 0.8 + d * 2, 16)
+    default: {
+      const _exhaustive: never = type
+      console.warn(`[RobotGeometry] unknown outline type: ${_exhaustive}`)
+      return new BoxGeometry(0.6 + d * 2, 0.8 + d * 2, 0.6 + d * 2)
+    }
+  }
+}

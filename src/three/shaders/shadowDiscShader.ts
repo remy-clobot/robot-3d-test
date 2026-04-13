@@ -41,6 +41,6 @@ void main() {
   // Fade from opaque at center to transparent at edge (60%–100% radius)
   float alpha = 0.35 * (1.0 - smoothstep(0.6, 1.0, dist));
   if (alpha < 0.001) discard;
-  gl_FragColor = vec4(0.05, 1.0, 0.72, alpha);
+  gl_FragColor = vec4(0.5, 0.8, 1.0, alpha);
 }
 `

@@ -49,10 +49,6 @@ ${rotFns}
 const transformPosition = /* glsl */ `
 vec3 localPos = position * instanceScale;
 
-#ifdef OUTLINE
-localPos += sign(localPos) * 0.04;
-#endif
-
 #ifdef PICKING
 localPos += sign(localPos) * 0.15;
 #endif
@@ -111,7 +107,6 @@ varying float vInstanceOpacity;`,
 // outline == 0 (w=0 places the vertex at infinity → outside clip space).
 
 export const outlineVertexShader = /* glsl */ `
-#define OUTLINE
 ${instanceDeclarations}
 
 void main() {

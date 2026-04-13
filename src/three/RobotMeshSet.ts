@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import InstancedGeometry from './geometry/InstancedGeometry'
+import { InterleavedBufferAttribute } from 'three'
 import {
   injectRobotVertex,
   injectRobotFragment,
@@ -45,6 +46,8 @@ export interface RobotMeshSetOptions {
   enableErrorMarker?: boolean
   /** Create a shadow disc on the ground plane. Default: true. */
   enableShadowDisc?: boolean
+  /** Pre-sized outline geometry (slightly larger than base). Avoids shader inflation artifacts. */
+  outlineGeometry?: THREE.BufferGeometry
 }
 
 // ─── defaults ─────────────────────────────────────────────────────────────────
@@ -88,6 +91,7 @@ export class RobotMeshSet {
 
   readonly outlineMesh: THREE.Mesh
   private readonly outlineMaterial: THREE.ShaderMaterial
+  private readonly outlineInstancedGeometry: InstancedGeometry
 
   readonly pickingMesh?: THREE.Mesh
   private readonly pickingMaterial?: THREE.ShaderMaterial
@@ -111,6 +115,7 @@ export class RobotMeshSet {
       enablePicking = false,
       enableErrorMarker = true,
       enableShadowDisc = true,
+      outlineGeometry,
     }: RobotMeshSetOptions = {},
   ) {
     this.meshTypeIndex = meshTypeIndex
@@ -145,15 +150,27 @@ export class RobotMeshSet {
     this.mesh = this._makeMesh(this.geometry, this.material, 1)
 
     // ── Outline mesh ───────────────────────────────────────────────────────
+    // Use a pre-sized geometry (slightly larger than base) so no per-vertex
+    // shader inflation is needed — avoids gaps on Cylinder curved surfaces
+    // and over-expansion at Box corners.
+    const outlineBase = outlineGeometry ?? baseGeometry
+    this.outlineInstancedGeometry = new InstancedGeometry(outlineBase, maxCount, {
+      translation:   this.geometry.getAttribute('translation')   as InterleavedBufferAttribute,
+      rotationX:     this.geometry.getAttribute('rotationX')     as InterleavedBufferAttribute,
+      rotationY:     this.geometry.getAttribute('rotationY')     as InterleavedBufferAttribute,
+      rotationZ:     this.geometry.getAttribute('rotationZ')     as InterleavedBufferAttribute,
+      instanceScale: this.geometry.getAttribute('instanceScale') as InterleavedBufferAttribute,
+      outline:       this.geometry.getAttribute('outline')       as InterleavedBufferAttribute,
+    })
+    if (outlineGeometry) outlineGeometry.dispose()
+
     this.outlineMaterial = new THREE.ShaderMaterial({
       uniforms: this.uniforms,
       vertexShader: outlineVertexShader,
       fragmentShader: outlineFragmentShader,
       side: THREE.BackSide,
-      // transparent: true,
-      /*depthWrite: false,*/
     })
-    this.outlineMesh = this._makeMesh(this.geometry, this.outlineMaterial, 1)
+    this.outlineMesh = this._makeMesh(this.outlineInstancedGeometry, this.outlineMaterial, 1)
 
     // ── Picking mesh (optional) ────────────────────────────────────────────
     if (enablePicking) {
@@ -172,6 +189,7 @@ export class RobotMeshSet {
 
     // ── Shadow disc (optional) ─────────────────────────────────────────────
     if (enableShadowDisc) {
+
       this._initShadowDisc()
     }
   }
@@ -252,6 +270,7 @@ export class RobotMeshSet {
     ]
     this.geometry.addInstance({ ...ATTR_DEFAULTS, ...attrs, idColor })
     // sub-geometries share attribute buffers; only instanceCount needs incrementing
+    this.outlineInstancedGeometry.addInstance()
     this.errorMarkerGeometry?.addInstance()
     this.shadowDiscGeometry?.addInstance()
   }
@@ -287,6 +306,7 @@ export class RobotMeshSet {
   dispose(): void {
     this.geometry.dispose()
     this.material.dispose()
+    this.outlineInstancedGeometry.dispose()
     this.outlineMaterial.dispose()
     this.pickingMaterial?.dispose()
     this.errorMarkerGeometry?.dispose()

@@ -6,8 +6,9 @@ import { useAppStore } from '../stores/appStore'
 import { useMapStore } from '../stores/mapStore'
 import { worldToScreen, worldToScreen3D } from '../utils/coordinateSync'
 import { RobotMeshSet } from '../three/RobotMeshSet'
-import { createRobotGeometry } from '../three/geometry/RobotGeometry'
+import { createRobotGeometry, createOutlineGeometry } from '../three/geometry/RobotGeometry'
 import { statusToNumber, type RobotType } from '../data/sampleData'
+import { loadBinPointCloud, POINT_HEIGHT_RANGE } from '../data/pointCloudData'
 
 const appStore = useAppStore()
 const mapStore = useMapStore()
@@ -24,6 +25,8 @@ let animationId: number
 let needsRender = true
 let cameraDirty = true
 
+let pointCloudPoints: THREE.Points | null = null
+
 // One RobotMeshSet per geometry type
 const meshSets = new Map<RobotType, RobotMeshSet>()
 const ROBOT_TYPES: RobotType[] = ['Box', 'Cylinder']
@@ -33,7 +36,8 @@ const robotPickMap = new Map<string, number>()
 const pixelBuffer = new Uint8Array(4)
 
 // Drag detection — suppress pick when OrbitControls dragged
-let pointerDownPos = { x: 0, y: 0 }
+let pointerDownPos    = { x: 0, y: 0 }
+let pointerDownButton = -1
 
 // ─── init ─────────────────────────────────────────────────────────────────────
 
@@ -73,6 +77,7 @@ function initScene() {
   camera = new THREE.PerspectiveCamera(50, width / height, 0.1, 200)
   camera.position.set(0, 12, 10)
   camera.lookAt(0, 0, 0)
+  appStore.setThreeCamera(camera)
 
   // Controls
   controls = new OrbitControls(camera, renderer.domElement)
@@ -90,23 +95,18 @@ function initScene() {
   dir.position.set(5, 10, 5)
   scene.add(dir)
 
-  // Ground
-  const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(20, 20),
-    new THREE.MeshStandardMaterial({ color: 0x16213e, transparent: true, opacity: 0.5 }),
-  )
-  ground.rotation.x = -Math.PI / 2
-  ground.position.y = -0.01
-  scene.add(ground)
+  // Point cloud loaded asynchronously after initScene()
 
   // Robot mesh sets (one per geometry type)
   ROBOT_TYPES.forEach((type, index) => {
     const geo = createRobotGeometry(type)
+    const outlineGeo = createOutlineGeometry(type)
     const meshSet = new RobotMeshSet(geo, {
       maxCount: 500,
       meshTypeIndex: index,
       enablePicking: true,
       enableErrorMarker: true,
+      outlineGeometry: outlineGeo,
     })
     meshSets.set(type, meshSet)
     meshSet.addToScene(scene, pickingScene)
@@ -135,11 +135,95 @@ function initScene() {
   }
 }
 
+// ─── point cloud ─────────────────────────────────────────────────────────────
+
+const POINT_VERT = /* glsl */`
+  precision mediump float;
+  attribute vec3 position;
+  uniform mat4 modelViewMatrix;
+  uniform mat4 projectionMatrix;
+  uniform float minHeight;
+  uniform float maxHeight;
+  varying vec3 vColor;
+
+  vec3 heightColor(float t) {
+    if (t < 0.25) return mix(vec3(0.05, 0.10, 0.75), vec3(0.00, 0.80, 0.90), t * 4.0);
+    if (t < 0.50) return mix(vec3(0.00, 0.80, 0.90), vec3(0.10, 0.85, 0.10), (t - 0.25) * 4.0);
+    if (t < 0.75) return mix(vec3(0.10, 0.85, 0.10), vec3(0.95, 0.85, 0.00), (t - 0.50) * 4.0);
+                  return mix(vec3(0.95, 0.85, 0.00), vec3(0.95, 0.10, 0.05), (t - 0.75) * 4.0);
+  }
+
+  void main() {
+    float t = clamp((position.y - minHeight) / (maxHeight - minHeight), 0.0, 1.0);
+    vColor = heightColor(t);
+    gl_Position  = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    gl_PointSize = 2.0;
+  }
+`
+
+const POINT_FRAG = /* glsl */`
+  precision mediump float;
+  varying vec3 vColor;
+  void main() {
+    gl_FragColor = vec4(vColor, 0.85);
+  }
+`
+
+async function addPointCloud() {
+  const positions = await loadBinPointCloud()
+
+  const geo = new THREE.BufferGeometry()
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+
+  const mat = new THREE.RawShaderMaterial({
+    vertexShader:   POINT_VERT,
+    fragmentShader: POINT_FRAG,
+    uniforms: {
+      minHeight: { value: POINT_HEIGHT_RANGE.min },
+      maxHeight: { value: POINT_HEIGHT_RANGE.max },
+    },
+    transparent: true,
+    depthWrite:  false,
+  })
+
+  pointCloudPoints = new THREE.Points(geo, mat)
+  pointCloudPoints.visible = appStore.pointCloudVisible
+  scene.add(pointCloudPoints)
+  needsRender = true
+}
+
 // ─── coordinate projection ───────────────────────────────────────────────────
 
 function syncProjectedNodes() {
   const w = appStore.containerWidth
   const h = appStore.containerHeight
+
+  // 1. 아주 작은 변화량(Delta)을 정의합니다.
+  // 타원의 순수한 찌그러짐(Pitch에 의한 왜곡)만 추출하려면 투영에 사용하는두 점을 원점에 아주 미세하게 가깝게 두어, 심도(Depth) 변화에 따른 오차를 제거해야함
+  // 수학적으로는 점 간 차이를 구하는 것에서 순간 변화률을 구하는 방식으로 바꾸는 것
+  const DELTA = 0.001
+
+// 2. 1 대신 DELTA만큼만 이동한 좌표를 투영합니다.
+  const p0  = worldToScreen(0, 0, camera, w, h)
+  const p1x = worldToScreen(DELTA, 0, camera, w, h)
+  const p1z = worldToScreen(0, DELTA, camera, w, h)
+
+// 3. 차이를 구한 뒤, DELTA로 나누어 다시 1단위 기준의 스케일(기울기)로 복원합니다.
+  const ux = (p1x.x - p0.x) / DELTA
+  const uy = (p1x.y - p0.y) / DELTA
+  const vx = (p1z.x - p0.x) / DELTA
+  const vy = (p1z.y - p0.y) / DELTA
+
+// 이후 로직(A, B, C 계산 및 고유값 분해)은 그대로 유지합니다.
+  const A    = ux*ux + vx*vx
+  const B    = ux*uy + vx*vy
+  const C    = uy*uy + vy*vy
+  const disc = Math.sqrt((A - C) * (A - C) + 4 * B * B)
+
+  appStore.mapEllipseRadiusX  = Math.sqrt(Math.max(0, (A + C + disc) / 2)) // 장축
+  appStore.mapEllipseRadiusY  = Math.sqrt(Math.max(0, (A + C - disc) / 2)) // 단축
+  appStore.mapEllipseRotation = Math.atan2(2 * B, A - C) / 2 * (180 / Math.PI)
+  appStore.mapScale            = appStore.mapEllipseRadiusX  // zoom 지표
 
   for (const node of mapStore.nodes) {
     let pt = mapStore.projectedNodes.get(node.id)
@@ -147,7 +231,9 @@ function syncProjectedNodes() {
       pt = { x: 0, y: 0 }
       mapStore.projectedNodes.set(node.id, pt)
     }
+
     const s = worldToScreen(node.x, node.y, camera, w, h)
+
     pt.x = s.x
     pt.y = s.y
   }
@@ -178,6 +264,8 @@ function syncProjectedNodes() {
  * Returns null if no robot was hit.
  */
 function pickRobotByPoint(clientX: number, clientY: number): number | null {
+
+  console.log('pickRobotByPoint 호출');
   const container = containerRef.value!
   const rect = container.getBoundingClientRect()
   const pixelRatio = renderer.getPixelRatio()
@@ -233,6 +321,16 @@ function syncRobotAttrs(i: number): void {
   needsRender = true
 }
 
+watch(
+  () => appStore.pointCloudVisible,
+  (v) => {
+    if (pointCloudPoints) pointCloudPoints.visible = v
+    needsRender = true
+  },
+)
+
+
+
 // When selectedRobotId changes, update the GPU outline for prev + next robot
 watch(
   () => appStore.selectedRobotId,
@@ -255,9 +353,13 @@ watch(
 
 function animate() {
   animationId = requestAnimationFrame(animate)
-  if (appStore.mode !== 'monitoring') return
+  if (appStore.mode !== 'monitoring') {
+    appStore.bumpRenderFrame()
+    return
+  }
 
   controls.update()
+  appStore.bumpRenderFrame()          // controls.update() 후 → ThreeMapCanvas가 최신 카메라로 렌더
 
   // Force continuous render while blink effects are active
   if (mapStore.robots.some((r) => r.blink)) needsRender = true
@@ -298,11 +400,23 @@ function onResize() {
 // ─── click picking ────────────────────────────────────────────────────────────
 
 function onPointerDown(e: PointerEvent) {
-  pointerDownPos = { x: e.clientX, y: e.clientY }
+  pointerDownPos    = { x: e.clientX, y: e.clientY }
+  pointerDownButton = e.button
+
+  const azimuth = controls.getAzimuthalAngle()                // radians, 0 = +Z축 방향
+  const polar   = controls.getPolarAngle()                    // radians, 0 = 정상위(top-down)
+
+  const bearing = (((-azimuth * 180) / Math.PI) % 360 + 360) % 360  // 0~360°, 북쪽 기준 시계방향
+  const pitch   = 90 - (polar * 180) / Math.PI                       // 0° = 수평, 90° = 정상위
+
+  console.log(`bearing: ${bearing.toFixed(1)}°  pitch: ${pitch.toFixed(1)}°`)
 }
 
 function onPointerUp(e: PointerEvent) {
   if (appStore.mode !== 'monitoring') return
+  // Only react when both down and up are left-click (button === 0)
+  if (e.button !== 0 || pointerDownButton !== 0) return
+  pointerDownButton = -1
   const dx = e.clientX - pointerDownPos.x
   const dy = e.clientY - pointerDownPos.y
   // Suppress pick if pointer moved more than 4px (OrbitControls drag)
@@ -330,9 +444,10 @@ watch(
 
 // ─── lifecycle ────────────────────────────────────────────────────────────────
 
-onMounted(() => {
+onMounted(async () => {
   initScene()
   animate()
+  addPointCloud()   // async, 로드 완료 후 자동으로 씬에 추가됨
   window.addEventListener('resize', onResize)
   const el = containerRef.value!
   el.addEventListener('pointerdown', onPointerDown)
@@ -349,6 +464,11 @@ onBeforeUnmount(() => {
   }
   meshSets.forEach((set) => set.dispose())
   meshSets.clear()
+  if (pointCloudPoints) {
+    pointCloudPoints.geometry.dispose()
+    ;(pointCloudPoints.material as THREE.Material).dispose()
+    scene.remove(pointCloudPoints)
+  }
   controls.dispose()
   pickingTarget.dispose()
   renderer.dispose()

@@ -41,6 +41,12 @@ function toggleShadowDisc() {
   mapStore.robotVersion++
 }
 
+function setWorkProgress(value: number) {
+  if (!robot.value) return
+  robot.value.workProgress = Math.max(0, Math.min(100, value))
+  mapStore.robotVersion++
+}
+
 const statusOptions: { value: RobotStatus; label: string; color: string }[] = [
   { value: 'normal',  label: '정상',  color: '#2ecc71' },
   { value: 'warning', label: '경고',  color: '#f39c12' },
@@ -80,6 +86,22 @@ const statusColor = computed(() => {
 
       <!-- Editable fields -->
       <div class="panel-section">
+        <!-- Work progress (custom label only) -->
+        <div v-if="mapStore.labelType === 'custom'" class="info-row">
+          <span class="label">진행률</span>
+          <div class="progress-row">
+            <input
+              type="range"
+              min="0"
+              max="100"
+              :value="robot.workProgress"
+              :style="{ accentColor: statusColor }"
+              @input="setWorkProgress(+($event.target as HTMLInputElement).value)"
+            />
+            <span class="value">{{ robot.workProgress }}%</span>
+          </div>
+        </div>
+
         <!-- Status -->
         <div class="info-row">
           <span class="label">상태</span>
@@ -235,6 +257,18 @@ const statusColor = computed(() => {
   font-family: monospace;
   font-size: 12px;
   color: #adb5bd;
+}
+
+/* ─── progress row ───────────────────────── */
+.progress-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.progress-row input[type='range'] {
+  width: 90px;
+  cursor: pointer;
 }
 
 /* ─── status buttons ─────────────────────── */
