@@ -9,6 +9,7 @@ import { RobotMeshSet } from '../three/RobotMeshSet'
 import { createRobotGeometry, createOutlineGeometry } from '../three/geometry/RobotGeometry'
 import { statusToNumber, type RobotType } from '../data/sampleData'
 import { loadBinPointCloud, POINT_HEIGHT_RANGE } from '../data/pointCloudData'
+import { sampleTasks } from '../data/sampleTasks'
 
 const appStore = useAppStore()
 const mapStore = useMapStore()
@@ -32,6 +33,51 @@ let pointCloudPoints: THREE.Points | null = null
 // ─── heading arrows ───────────────────────────────────────────────────────────
 const robotArrows: THREE.LineSegments[] = []
 let   arrowMat:    THREE.LineBasicMaterial | null = null
+
+// ─── task 3D markers (pins only — path drawn by Konva) ───────────────────────
+let taskStartPin: THREE.Group | null = null
+let taskEndPin:   THREE.Group | null = null
+
+function createPinMesh(color: number): THREE.Group {
+  const group = new THREE.Group()
+  const mat = new THREE.MeshPhongMaterial({
+    color,
+    emissive: new THREE.Color(color).multiplyScalar(0.3),
+    transparent: true,
+    opacity: 0.92,
+  })
+  // Cone body — tip at y=0, base at y=0.6 (pointing down via rotation)
+  const cone = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.6, 12), mat.clone())
+  cone.rotation.x = Math.PI
+  cone.position.y = 0.3
+  // Sphere head
+  const sphere = new THREE.Mesh(new THREE.SphereGeometry(0.26, 16, 12), mat.clone())
+  sphere.position.y = 0.65
+  group.add(cone)
+  group.add(sphere)
+  group.visible = false
+  return group
+}
+
+function updateTask3DMarkers(): void {
+  const taskId = appStore.selectedTaskId
+  const show   = taskId !== null && mapStore.taskTooltipMode === '3d'
+
+  if (taskStartPin) taskStartPin.visible = show
+  if (taskEndPin)   taskEndPin.visible   = show
+
+  if (show) {
+    const task = sampleTasks.find(t => t.id === taskId)
+    if (task && task.pathList.length >= 2) {
+      const startPt = task.pathList[0]
+      const endPt   = task.pathList[task.pathList.length - 1]
+      if (taskStartPin) taskStartPin.position.set(startPt.x, 0, startPt.y)
+      if (taskEndPin)   taskEndPin.position.set(endPt.x, 0, endPt.y)
+    }
+  }
+
+  needsRender = true
+}
 
 // One RobotMeshSet per geometry type
 const meshSets = new Map<RobotType, RobotMeshSet>()
@@ -149,6 +195,12 @@ function initScene() {
     scene.add(arrow)
     robotArrows.push(arrow)
   }
+
+  // Task 3D pins (hidden until a task is selected in 3D mode)
+  taskStartPin = createPinMesh(0x2563eb) // blue  — start
+  taskEndPin   = createPinMesh(0xef4444) // red   — end
+  scene.add(taskStartPin)
+  scene.add(taskEndPin)
 
   // Point cloud loaded asynchronously after initScene()
 
@@ -457,6 +509,12 @@ watch(
   },
 )
 
+// Task 3D markers: update when selected task or tooltip mode changes
+watch(
+  [() => appStore.selectedTaskId, () => mapStore.taskTooltipMode],
+  () => updateTask3DMarkers(),
+)
+
 // ─── animation loop ───────────────────────────────────────────────────────────
 
 function animate() {
@@ -580,6 +638,19 @@ onBeforeUnmount(() => {
     ;(pointCloudPoints.material as THREE.Material).dispose()
     scene.remove(pointCloudPoints)
   }
+  // Task 3D pin cleanup
+  const disposePinGroup = (g: THREE.Group) => {
+    scene.remove(g)
+    g.traverse(obj => {
+      if (obj instanceof THREE.Mesh) {
+        obj.geometry.dispose()
+        ;(obj.material as THREE.Material).dispose()
+      }
+    })
+  }
+  if (taskStartPin) disposePinGroup(taskStartPin)
+  if (taskEndPin)   disposePinGroup(taskEndPin)
+
   controls.dispose()
   pickingTarget.dispose()
   renderer.dispose()

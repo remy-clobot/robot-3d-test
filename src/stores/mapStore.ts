@@ -31,12 +31,13 @@ export const useMapStore = defineStore('map', () => {
   const robotVersion = ref(0)
 
   // ── System-wide display settings ─────────────────────────────────────────────
-  const labelType   = ref<LabelType>('default')
-  const tooltipType = ref<TooltipType>('tooltip1')
+  const labelType        = ref<LabelType>('default')
+  const tooltipType      = ref<TooltipType>('tooltip1')
+  const taskTooltipMode  = ref<'2d' | '3d'>('2d')
 
   function getNode(id: number) {
     return nodes.value.find((n) => n.id === id)
   }
 
-  return { nodes, links, robots, projectedNodes, projectedRobots, projectedVersion, robotVersion, labelType, tooltipType, getNode }
+  return { nodes, links, robots, projectedNodes, projectedRobots, projectedVersion, robotVersion, labelType, tooltipType, taskTooltipMode, getNode }
 })

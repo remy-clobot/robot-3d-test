@@ -15,6 +15,10 @@ function setTooltipType(value: 'tooltip1' | 'tooltip2') {
   mapStore.robotVersion++
 }
 
+function setTaskTooltipMode(value: '2d' | '3d') {
+  mapStore.taskTooltipMode = value
+}
+
 function togglePointCloud() {
   appStore.pointCloudVisible = !appStore.pointCloudVisible
 }
@@ -69,6 +73,24 @@ function toggleOutline() {
             style="--color: #a9e34b"
             @click="setTooltipType('tooltip2')"
           >타입 2</button>
+        </div>
+      </div>
+
+      <div class="info-row">
+        <span class="label">태스크 툴팁</span>
+        <div class="btn-group">
+          <button
+            class="opt-btn"
+            :class="{ active: mapStore.taskTooltipMode === '2d' }"
+            style="--color: #c77dff"
+            @click="setTaskTooltipMode('2d')"
+          >2D</button>
+          <button
+            class="opt-btn"
+            :class="{ active: mapStore.taskTooltipMode === '3d' }"
+            style="--color: #c77dff"
+            @click="setTaskTooltipMode('3d')"
+          >3D</button>
         </div>
       </div>
 

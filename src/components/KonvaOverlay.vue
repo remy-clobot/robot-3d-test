@@ -328,6 +328,32 @@ const movingArrows = computed(() => {
 // ─── non-selected robots: gradient tail ──────────────────────────────────────
 
 
+// ─── task 2D start/end markers ────────────────────────────────────────────────
+
+const task2DMarkers = computed(() => {
+  if (mapStore.taskTooltipMode !== '2d') return null
+  const taskId = appStore.selectedTaskId
+  if (!taskId) return null
+  void mapStore.projectedVersion
+
+  const task = sampleTasks.find(t => t.id === taskId)
+  if (!task || task.pathList.length < 1) return null
+
+  const firstItem = task.pathList[0]
+  const lastItem  = task.pathList[task.pathList.length - 1]
+
+  const startPt = mapStore.projectedNodes.get(Number(firstItem.node))
+  const endPt   = mapStore.projectedNodes.get(Number(lastItem.node))
+
+  const start = startPt && startPt.x !== -9999 ? { x: startPt.x, y: startPt.y } : null
+  const end   = endPt   && endPt.x   !== -9999 ? { x: endPt.x,   y: endPt.y   } : null
+  if (!start && !end) return null
+  return { start, end }
+})
+
+// SVG path for a map pin shape: tip at (0,0), circle head above
+const PIN_PATH = 'M 0 0 C -6 -3 -13 -9 -13 -18 A 13 13 0 0 1 13 -18 C 13 -9 6 -3 0 0 Z'
+
 // ─── selected task: full path ─────────────────────────────────────────────────
 
 const taskFullPathPoints = computed<number[]>(() => {
@@ -344,6 +370,38 @@ const taskFullPathPoints = computed<number[]>(() => {
     if (pt) pts.push(pt.x, pt.y)
   }
   return pts
+})
+
+// 태스크 경로선 설정 — 2D: 보라색 단색 / 3D: 파란→빨간 그라데이션
+const taskPathLineConfig = computed(() => {
+  const pts = taskFullPathPoints.value
+  if (pts.length < 4) return null
+
+  if (mapStore.taskTooltipMode === '3d') {
+    const startX = pts[0],             startY = pts[1]
+    const endX   = pts[pts.length - 2], endY  = pts[pts.length - 1]
+    return {
+      points:      pts,
+      strokeWidth: 10,
+      lineCap:     'round',
+      lineJoin:    'round',
+      listening:   false,
+      opacity:     0.55,
+      strokeLinearGradientStartPoint: { x: startX, y: startY },
+      strokeLinearGradientEndPoint:   { x: endX,   y: endY   },
+      strokeLinearGradientColorStops: [0, '#2563eb', 1, '#ef4444'],
+    }
+  }
+  // 2D mode: solid purple
+  return {
+    points:      pts,
+    stroke:      'rgb(176, 39, 245)',
+    strokeWidth: 10,
+    lineCap:     'round',
+    lineJoin:    'round',
+    listening:   false,
+    opacity:     0.3,
+  }
 })
 
 const taskMovingArrows = computed(() => {
@@ -445,6 +503,14 @@ const allRobotTails = computed(() => {
 
   return tails
 })
+
+// 새로 추가할 말풍선(툴팁) 모양의 SVG Path
+// 1. M 0 0: 뾰족한 끝점 (실제 마커가 가리키는 좌표)
+// 2. L 5 -7: 오른쪽 위로 짧은 선을 그어 삼각형의 오른쪽 면을 만듦
+// 3. A 14 14 0 1 0 -5 -7: 반지름 14인 둥근 원형(말풍선 머리 부분)을 그림
+// 4. Z: 다시 원점으로 선을 이어 삼각형의 왼쪽 면을 닫음
+const BUBBLE_PATH = 'M 0 0 L 5 -7 A 14 14 0 1 0 -5 -7 Z';
+
 </script>
 
 <template>
@@ -603,18 +669,10 @@ const allRobotTails = computed(() => {
           }"
         />
 
-        <!-- 선택 태스크: 전체 경로 (보라색 라인) -->
+        <!-- 선택 태스크: 전체 경로 (2D: 보라색 / 3D: 파란→빨간 그라데이션) -->
         <v-line
-          v-if="taskFullPathPoints.length >= 4"
-          :config="{
-            points:      taskFullPathPoints,
-            stroke:      'rgb(176, 39, 245)',
-            strokeWidth: 10,
-            lineCap:     'round',
-            lineJoin:    'round',
-            listening:   false,
-            opacity:     0.3,
-          }"
+          v-if="taskPathLineConfig"
+          :config="taskPathLineConfig"
         />
 
         <!-- 선택 태스크: 이동 화살표 -->
@@ -630,6 +688,58 @@ const allRobotTails = computed(() => {
             opacity:       tailOpacity,
           }"
         />
+
+        <!-- 태스크 2D 마커: 출발 -->
+        <v-group
+            v-if="task2DMarkers?.start"
+            :config="{ x: task2DMarkers.start.x, y: task2DMarkers.start.y, listening: false }"
+        >
+          <v-path :config="{
+      data:        BUBBLE_PATH,  fill:        '#0d0d1e',
+      stroke:      '#7b2fff',    strokeWidth: 1.5,
+      listening:   false,
+    }" />
+          <v-text :config="{
+      x: -4, y: -25,             text:      '▶',
+      fontSize:  11,
+      fill:      '#c77dff',
+      listening: false,
+    }" />
+          <v-text :config="{
+      x: 18, y: -26,             text:      '출발',
+      fontSize:  12,
+      fill:      '#ffffff',      fontStyle: 'bold',
+      listening: false,
+    }" />
+        </v-group>
+
+        <v-group
+            v-if="task2DMarkers?.end"
+            :config="{ x: task2DMarkers.end.x, y: task2DMarkers.end.y, listening: false }"
+        >
+          <v-path :config="{
+      data:        BUBBLE_PATH,
+      fill:        '#0d0d1e',
+      stroke:      '#7b2fff',
+      strokeWidth: 1.5,
+      listening:   false,
+    }" />
+          <v-text :config="{
+      x: -6, y: -26,
+      text:      '⚑',
+      fontSize:  13,
+      fill:      '#c77dff',
+      listening: false,
+    }" />
+          <v-text :config="{
+      x: 18, y: -26,
+      text:      '도착',
+      fontSize:  12,
+      fill:      '#ffffff',
+      fontStyle: 'bold',
+      listening: false,
+    }" />
+        </v-group>
 
 
       </v-layer>
