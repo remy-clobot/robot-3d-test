@@ -38,25 +38,41 @@ let   arrowMat:    THREE.LineBasicMaterial | null = null
 let taskStartPin: THREE.Group | null = null
 let taskEndPin:   THREE.Group | null = null
 
-function createPinMesh(color: number): THREE.Group {
-  const group = new THREE.Group()
-  const mat = new THREE.MeshPhongMaterial({
-    color,
-    emissive: new THREE.Color(color).multiplyScalar(0.3),
-    transparent: true,
-    opacity: 0.92,
-  })
-  // Cone body — tip at y=0, base at y=0.6 (pointing down via rotation)
-  const cone = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.6, 12), mat.clone())
-  cone.rotation.x = Math.PI
-  cone.position.y = 0.3
-  // Sphere head
-  const sphere = new THREE.Mesh(new THREE.SphereGeometry(0.26, 16, 12), mat.clone())
-  sphere.position.y = 0.65
-  group.add(cone)
-  group.add(sphere)
-  group.visible = false
-  return group
+const createPinMesh = () => {
+  const pinGroup = new THREE.Group();
+  pinGroup.name = 'task_pin'; // 이름 고정
+
+  const WHITE_COLOR = 0xFFFFFF;
+
+  // -- 1. 흰색 실선 (Shaft) --
+  const shaftHeight = 3;  // 실선 길이
+  const shaftRadius = 0.02; // 실선 굵기 고정
+  const shaftGeometry = new THREE.CylinderGeometry(shaftRadius, shaftRadius, shaftHeight, 8);
+  const shaftMaterial = new THREE.MeshBasicMaterial({ color: WHITE_COLOR });
+  const shaft = new THREE.Mesh(shaftGeometry, shaftMaterial);
+
+  // 실선의 밑면이 그룹의 원점(바닥)에 오도록 위치 조정
+  shaft.position.y = shaftHeight / 2;
+  pinGroup.add(shaft);
+
+  // -- 2. 흰색 삼각형 (Icon) --
+  const triangleSize = 0.5; // 삼각형 크기 고정
+  const triangleShape = new THREE.Shape();
+  // 정삼각형을 아래를 향하게 정의
+  triangleShape.moveTo(0, 0); // 뾰족한 끝점 (원점)
+  triangleShape.lineTo(triangleSize / 2, triangleSize); // 우측 상단
+  triangleShape.lineTo(-triangleSize / 2, triangleSize); // 좌측 상단
+  triangleShape.lineTo(0, 0); // 다시 끝점으로
+
+  const triangleGeometry = new THREE.ShapeGeometry(triangleShape);
+  const triangleMaterial = new THREE.MeshBasicMaterial({ color: WHITE_COLOR, side: THREE.DoubleSide });
+  const triangle = new THREE.Mesh(triangleGeometry, triangleMaterial);
+
+  // 삼각형을 실선의 맨 위에 배치
+  triangle.position.y = shaftHeight + 0.2;
+  pinGroup.add(triangle);
+
+  return pinGroup;
 }
 
 function updateTask3DMarkers(): void {

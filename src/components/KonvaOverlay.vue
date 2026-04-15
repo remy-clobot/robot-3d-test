@@ -351,8 +351,6 @@ const task2DMarkers = computed(() => {
   return { start, end }
 })
 
-// SVG path for a map pin shape: tip at (0,0), circle head above
-const PIN_PATH = 'M 0 0 C -6 -3 -13 -9 -13 -18 A 13 13 0 0 1 13 -18 C 13 -9 6 -3 0 0 Z'
 
 // ─── selected task: full path ─────────────────────────────────────────────────
 
@@ -401,6 +399,9 @@ const taskPathLineConfig = computed(() => {
     lineJoin:    'round',
     listening:   false,
     opacity:     0.3,
+    strokeLinearGradientStartPoint: null,
+    strokeLinearGradientEndPoint:   null,
+    strokeLinearGradientColorStops: null,
   }
 })
 
