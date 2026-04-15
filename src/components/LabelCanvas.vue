@@ -2,10 +2,14 @@
 import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useAppStore } from '../stores/appStore'
 import { useMapStore } from '../stores/mapStore'
+import { usePlaybackStore } from '../stores/playbackStore'
+import { getTaskByRobotIdx, getTaskState } from '../data/sampleTasks'
+import { ALL_ROBOT_FRAMES } from '../data/robotTrajectoryData'
 import type { Robot } from '../data/sampleData'
 
 const appStore = useAppStore()
 const mapStore = useMapStore()
+const playback = usePlaybackStore()
 
 const canvasRef = ref<HTMLCanvasElement>()
 let ctx: CanvasRenderingContext2D | null = null
@@ -463,11 +467,34 @@ function draw() {
     if (sx < -200 || sx > w + 200 || sy < -200 || sy > h + 200) continue
 
     const sy_offset = sy - 20
+
+    // ── 태스크 상태 파생 ──────────────────────────────────────────────────────
+    const task       = getTaskByRobotIdx(i)
+    const frameIdx   = Math.min(playback.currentIndex, (ALL_ROBOT_FRAMES[i]?.length ?? 1) - 1)
+    const taskState  = task ? getTaskState(i, frameIdx) : null
+    const isComplete = taskState === 'Complete'
+
+    // ── 태스크명 태그 (필 위쪽) ──────────────────────────────────────────────
+    if (task) {
+      ctx.save()
+      ctx.font         = '10px/1 system-ui, sans-serif'
+      ctx.textBaseline = 'middle'
+      ctx.textAlign    = 'center'
+      ctx.fillStyle    = isComplete
+        ? 'rgba(116, 192, 252, 0.55)'
+        : 'rgba(180, 200, 255, 0.85)'
+      ctx.fillText(task.name, sx, sy_offset - 20)
+      ctx.restore()
+    }
+
+    // ── 로봇 라벨 필 (완료 시 dim) ────────────────────────────────────────────
+    if (isComplete) ctx.globalAlpha = 0.45
     if (mapStore.labelType === 'custom') {
       drawCustomPill(robot, sx, sy_offset)
     } else {
       drawPill(`#${robot.id}`, sx, sy_offset)
     }
+    if (isComplete) ctx.globalAlpha = 1
   }
 
   // ── 선택/사라짐 툴팁 ─────────────────────────────────────────────────────

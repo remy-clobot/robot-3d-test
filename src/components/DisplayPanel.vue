@@ -73,7 +73,7 @@ function toggleOutline() {
       </div>
 
       <div class="info-row">
-        <span class="label">포인트<br>클라우드</span>
+        <span class="label">포인트 클라우드</span>
         <button
           class="toggle-btn"
           :class="{ on: appStore.pointCloudVisible }"
@@ -87,7 +87,7 @@ function toggleOutline() {
       </div>
 
       <div class="info-row">
-        <span class="label">맵<br>이미지</span>
+        <span class="label">맵 이미지</span>
         <button
           class="toggle-btn"
           :class="{ on: appStore.mapImageVisible }"
@@ -101,7 +101,7 @@ function toggleOutline() {
       </div>
 
       <div class="info-row">
-        <span class="label">아웃<br>라인</span>
+        <span class="label">아웃라인</span>
         <button
           class="toggle-btn"
           :class="{ on: appStore.outlineVisible }"
@@ -120,10 +120,10 @@ function toggleOutline() {
 <style scoped>
 .display-panel {
   position: absolute;
-  top: 75px;
-  left: 16px;
+  bottom: 16px;
+  right: 16px;
   z-index: 100;
-  width: 250px;
+  width: 280px;
   background: rgba(15, 15, 30, 0.88);
   backdrop-filter: blur(10px);
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -162,7 +162,7 @@ function toggleOutline() {
 .label {
   color: #868e96;
   flex-shrink: 0;
-  width: 36px;
+  width: 110px;
 }
 
 .btn-group {

@@ -61,7 +61,7 @@ const statusColor = computed(() => {
 
 <template>
   <Transition name="panel">
-    <div v-if="robot" class="robot-panel">
+    <div v-if="robot && !appStore.selectedTaskId" class="robot-panel">
       <!-- Header -->
       <div class="panel-header">
         <span class="panel-title">Robot #{{ robot.id }}</span>

@@ -4,6 +4,7 @@ import { useAppStore } from '../stores/appStore'
 import { useMapStore } from '../stores/mapStore'
 import { usePlaybackStore } from '../stores/playbackStore'
 import { worldToScreen } from '../utils/coordinateSync'
+import { sampleTasks } from '../data/sampleTasks'
 
 const appStore    = useAppStore()
 const mapStore    = useMapStore()
@@ -153,11 +154,18 @@ const stageConfig = computed(() => ({
 // ─── arrow animation ──────────────────────────────────────────────────────────
 
 const arrowProgress = ref(0)
+const tailOpacity = ref(1)
 let animFrameId = 0
 
 onMounted(() => {
   function loop() {
     arrowProgress.value = (arrowProgress.value + 0.003) % 1
+
+    // 💡 꼬리 깜빡임 업데이트 (Math.sin을 이용해 0.2 ~ 1.0 사이를 부드럽게 오감)
+    // Date.now() 나누기 값을 조절하면 깜빡이는 속도를 바꿀 수 있어. (숫자가 작을수록 빠름)
+    tailOpacity.value = 0.6 + 0.4 * Math.sin(Date.now() / 200)
+
+
     animFrameId = requestAnimationFrame(loop)
   }
   animFrameId = requestAnimationFrame(loop)
@@ -266,8 +274,6 @@ const selectedFuturePoints = computed<number[]>(() => {
   if (!frame) return []
   const w = appStore.containerWidth, h = appStore.containerHeight
 
-
-
   const cur = worldToScreen(frame.x, frame.y, cam, w, h) // 로봇의 현재 위치
   const pts: number[] = [cur.x, cur.y]
   const futureIds = frame.path.slice(frame.pathIndex + 1)
@@ -281,7 +287,7 @@ const selectedFuturePoints = computed<number[]>(() => {
 // ─── moving arrows along future path ─────────────────────────────────────────
 const ARROW_SPACING = 40  // px, 화살표 사이의 절대 픽셀 간격
 const ARROW_HALF  = 1     // px, 화살표 반길이
-const SPEED_FACTOR = 5    // 이동 속도 조절 (숫자가 클수록 빠름)
+const SPEED_FACTOR = 5    // 이동 속도 조절 (숫자 가 클수록 빠름)
 
 const movingArrows = computed(() => {
   const pts = selectedFuturePoints.value
@@ -321,6 +327,52 @@ const movingArrows = computed(() => {
 
 // ─── non-selected robots: gradient tail ──────────────────────────────────────
 
+
+// ─── selected task: full path ─────────────────────────────────────────────────
+
+const taskFullPathPoints = computed<number[]>(() => {
+  const taskId = appStore.selectedTaskId
+  if (!taskId) return []
+  void mapStore.projectedVersion
+
+  const task = sampleTasks.find((t) => t.id === taskId)
+  if (!task) return []
+
+  const pts: number[] = []
+  for (const item of task.pathList) {
+    const pt = mapStore.projectedNodes.get(Number(item.node))
+    if (pt) pts.push(pt.x, pt.y)
+  }
+  return pts
+})
+
+const taskMovingArrows = computed(() => {
+  const pts = taskFullPathPoints.value
+  if (pts.length < 4) return []
+
+  const totalLen = polylineLength(pts)
+  if (totalLen === 0) return []
+
+  const baseOffset = (arrowProgress.value * SPEED_FACTOR * ARROW_SPACING) % ARROW_SPACING
+  const arrows: { points: number[] }[] = []
+
+  for (let d = baseOffset; d <= totalLen; d += ARROW_SPACING) {
+    const t = d / totalLen
+    const pos = interpolatePolyline(pts, t)
+    if (!pos) continue
+
+    const rad = (pos.angle * Math.PI) / 180
+    const cos = Math.cos(rad), sin = Math.sin(rad)
+    arrows.push({
+      points: [
+        pos.x - cos * ARROW_HALF, pos.y - sin * ARROW_HALF,
+        pos.x + cos * ARROW_HALF, pos.y + sin * ARROW_HALF,
+      ],
+    })
+  }
+
+  return arrows
+})
 
 // ─── node interactions ────────────────────────────────────────────────────────
 
@@ -469,22 +521,7 @@ const allRobotTails = computed(() => {
 
       <!-- ── Layer 3: playback trajectories ────────────────────────────── -->
       <v-layer>
-        <v-line
-            v-for="tail in allRobotTails"
-            :key="'tail-' + tail.id"
-            :config="{
-              points: tail.points,
-              strokeWidth: tail.strokeWidth,
-              lineCap: 'round',
-              lineJoin: 'round',
-              listening: false,
 
-              // 💡핵심: fill이 아니라 stroke 그라데이션 속성을 사용!
-              strokeLinearGradientStartPoint: { x: tail.startX, y: tail.startY },
-              strokeLinearGradientEndPoint: { x: tail.endX, y: tail.endY },
-              strokeLinearGradientColorStops: tail.colorStops
-            }"
-        />
         <!-- 선택 로봇: 전체 궤적 (실선) -->
         <v-line
           v-if="selectedTrajectoryPoints.length >= 4"
@@ -514,9 +551,25 @@ const allRobotTails = computed(() => {
     lineCap:     'round',
     lineJoin:    'round',
     listening:   false,
-    opacity:     0.9,
+    opacity: tailOpacity,
   }"
         />
+
+        <v-line
+            v-for="tail in allRobotTails"
+            :key="'tail-' + tail.id"
+            :config="{
+              points: tail.points,
+              strokeWidth: tail.strokeWidth,
+              lineCap: 'round',
+              lineJoin: 'round',
+              listening: false,
+              // 💡핵심: fill이 아니라 stroke 그라데이션 속성을 사용!
+              strokeLinearGradientStartPoint: { x: tail.startX, y: tail.startY },
+              strokeLinearGradientEndPoint: { x: tail.endX, y: tail.endY },
+              strokeLinearGradientColorStops: tail.colorStops
+            }" />
+
 
         <!-- 선택 로봇: 앞으로 갈 경로 -->
         <v-line
@@ -546,8 +599,38 @@ const allRobotTails = computed(() => {
             pointerLength: 7,
             pointerWidth:  9,
             listening:     false,
+            opacity: tailOpacity,
           }"
         />
+
+        <!-- 선택 태스크: 전체 경로 (보라색 라인) -->
+        <v-line
+          v-if="taskFullPathPoints.length >= 4"
+          :config="{
+            points:      taskFullPathPoints,
+            stroke:      'rgb(176, 39, 245)',
+            strokeWidth: 10,
+            lineCap:     'round',
+            lineJoin:    'round',
+            listening:   false,
+            opacity:     0.3,
+          }"
+        />
+
+        <!-- 선택 태스크: 이동 화살표 -->
+        <v-arrow
+          v-for="(arrow, ai) in taskMovingArrows"
+          :key="'task-arrow-' + ai"
+          :config="{
+            points:        arrow.points,
+            fill:          '#c177e6',
+            pointerLength: 7,
+            pointerWidth:  9,
+            listening:     false,
+            opacity:       tailOpacity,
+          }"
+        />
+
 
       </v-layer>
 

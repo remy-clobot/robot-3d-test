@@ -24,8 +24,14 @@ let controls: OrbitControls
 let animationId: number
 let needsRender = true
 let cameraDirty = true
+let focusRafId: number | null = null
+const FOCUS_DURATION = 700 // ms
 
 let pointCloudPoints: THREE.Points | null = null
+
+// ─── heading arrows ───────────────────────────────────────────────────────────
+const robotArrows: THREE.LineSegments[] = []
+let   arrowMat:    THREE.LineBasicMaterial | null = null
 
 // One RobotMeshSet per geometry type
 const meshSets = new Map<RobotType, RobotMeshSet>()
@@ -38,6 +44,45 @@ const pixelBuffer = new Uint8Array(4)
 // Drag detection — suppress pick when OrbitControls dragged
 let pointerDownPos    = { x: 0, y: 0 }
 let pointerDownButton = -1
+
+// ─── heading arrow geometry (refs/3d-arrow.ts 기반, XZ 평면으로 변환) ────────
+//
+// 참조 파일의 getArrowInfo()는 XY 평면에서 +X 방향 화살표를 정의함.
+// Three.js 그라운드 플레인은 XZ 이므로, 날개를 Y 대신 Z 방향으로 배치.
+// 인덱스 구조(LineSegments): shaft[0→1], wing1[1→2], wing2[1→3]
+
+function createArrowGeometry(): THREE.BufferGeometry {
+  const shaftStart = 0.3   // 로봇 중심에서 화살표 시작 오프셋
+  const tip        = 0.8   // 화살촉 끝 X
+  const wingX      = 0.6   // 날개 부착 X (tip에서 뒤쪽)
+  const wingZ      = 0.2   // 날개 너비 (±Z)
+
+  // XZ 평면 배치: 날개 방향을 Y → Z 로 변환 (참조 파일의 arrowWidth → wingZ)
+  const positions = new Float32Array([
+    shaftStart, 0,  0,      // 0: 샤프트 시작
+    tip,        0,  0,      // 1: 화살촉 끝
+    wingX,      0,  wingZ,  // 2: 날개 +Z
+    wingX,      0, -wingZ,  // 3: 날개 -Z
+  ])
+
+  const geo = new THREE.BufferGeometry()
+  geo.setIndex([0, 1, 1, 2, 1, 3])
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+  return geo
+}
+
+function syncArrows(): void {
+  for (let i = 0; i < robotArrows.length; i++) {
+    const arrow = robotArrows[i]
+    const robot = mapStore.robots[i]
+    if (!arrow || !robot) continue
+    arrow.position.set(robot.x, robot.y + 0.05, robot.z)
+    arrow.rotation.y = robot.rotationY ? robot.rotationY - Math.PI/2:  0
+    //arrow.rotation.y = Math.PI/2
+
+  }
+  needsRender = true
+}
 
 // ─── init ─────────────────────────────────────────────────────────────────────
 
@@ -94,6 +139,16 @@ function initScene() {
   const dir = new THREE.DirectionalLight(0xffffff, 0.8)
   dir.position.set(5, 10, 5)
   scene.add(dir)
+
+  // 헤딩 화살표 (로봇별 1개, 공유 재질)
+  arrowMat = new THREE.LineBasicMaterial({ color: 0x999999 })
+  for (const robot of mapStore.robots) {
+    const arrow = new THREE.LineSegments(createArrowGeometry(), arrowMat)
+    arrow.position.set(robot.x, robot.y + 0.05, robot.z)
+    arrow.rotation.y = robot.rotationY ?? 0
+    scene.add(arrow)
+    robotArrows.push(arrow)
+  }
 
   // Point cloud loaded asynchronously after initScene()
 
@@ -338,6 +393,50 @@ watch(
 
 
 
+// 로봇/태스크 클릭 시 카메라 부드럽게 이동
+watch(
+  () => appStore.cameraFocusVersion,
+  () => {
+    const target = appStore.cameraFocusTarget
+    if (!target || !controls) return
+
+    if (focusRafId !== null) {
+      cancelAnimationFrame(focusRafId)
+      focusRafId = null
+    }
+
+    const startTX = controls.target.x
+    const startTZ = controls.target.z
+    const startCX = camera.position.x
+    const startCZ = camera.position.z
+    const dX = target.x - startTX
+    const dZ = target.z - startTZ
+    const t0 = performance.now()
+
+    function step(now: number) {
+      const p = Math.min((now - t0) / FOCUS_DURATION, 1)
+      const e = p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2
+
+      controls.target.x = startTX + dX * e
+      controls.target.z = startTZ + dZ * e
+      camera.position.x = startCX + dX * e
+      camera.position.z = startCZ + dZ * e
+
+      needsRender = true
+      cameraDirty = true
+
+      if (p < 1) {
+        focusRafId = requestAnimationFrame(step)
+      } else {
+        focusRafId = null
+        controls.update()
+      }
+    }
+
+    focusRafId = requestAnimationFrame(step)
+  },
+)
+
 // When selectedRobotId changes, update the GPU outline for prev + next robot
 watch(
   () => appStore.selectedRobotId,
@@ -353,6 +452,7 @@ watch(
   () => mapStore.robotVersion,
   () => {
     for (let i = 0; i < mapStore.robots.length; i++) syncRobotAttrs(i)
+    syncArrows()
     cameraDirty = true   // 로봇 위치 변경 → 라벨 좌표 재투영
   },
 )
@@ -472,6 +572,9 @@ onBeforeUnmount(() => {
   }
   meshSets.forEach((set) => set.dispose())
   meshSets.clear()
+  robotArrows.forEach((a) => { a.geometry.dispose(); scene.remove(a) })
+  robotArrows.length = 0
+  arrowMat?.dispose()
   if (pointCloudPoints) {
     pointCloudPoints.geometry.dispose()
     ;(pointCloudPoints.material as THREE.Material).dispose()
