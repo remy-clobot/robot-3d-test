@@ -3,8 +3,8 @@ import { onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer';
-import { RenderPass } from 'three/examples/jsm/passes/RenderPass.js';
-import { UnrealBloomPass } from 'three/examples/jsm/passes/UnrealBloomPass.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass';
 import { useAppStore } from '../stores/appStore'
 import { useMapStore } from '../stores/mapStore'
 import { worldToScreen, worldToScreen3D } from '../utils/coordinateSync'
@@ -49,58 +49,82 @@ function createPinMesh(color: number): THREE.Group {
 
   const shaftHeight = 3.0
   const shaftRadius = 0.02
-  const rgb = new THREE.Color(color)
+  const halfH       = shaftHeight / 2   // 1.5
+  const rgb         = new THREE.Color(color)
 
   // -- 1. 실선 (Shaft): 아래 투명 → 위 불투명 그라데이션 --
-  // CylinderGeometry 로컬 Y: -shaftHeight/2 (바닥) ~ +shaftHeight/2 (꼭대기)
-  // alpha = (y + shaftHeight/2) / shaftHeight  →  0.0 ~ 1.0
+  // CylinderGeometry 로컬 Y 범위: -halfH (바닥) ~ +halfH (꼭대기)
+  // alpha = (y + halfH) / shaftHeight  →  0.0 (바닥) ~ 1.0 (꼭대기)
   const shaftGeometry = new THREE.CylinderGeometry(shaftRadius, shaftRadius, shaftHeight, 12)
   const shaftMaterial = new THREE.ShaderMaterial({
-    uniforms: {
-      uColor: { value: rgb },
-    },
+    uniforms: { uColor: { value: rgb } },
     vertexShader: /* glsl */`
-      varying float vY; // y 좌표를 전달할 변수
+      varying float vAlpha;
       void main() {
-        vY = position.y;
+        vAlpha = clamp((position.y + ${halfH.toFixed(2)}) / ${shaftHeight.toFixed(2)}, 0.0, 1.0);
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }
     `,
     fragmentShader: /* glsl */`
-      uniform vec3 color;
-varying float vY;
-void main() {
-  float halfH = 12.5; // (shaftHeight / 2) 직접 입력 혹은 uniform 전달
-  float t = clamp((vY + halfH) / (halfH * 2.0), 0.0, 1.0);
-
-  // 이제 0.9를 주면 정확히 상단 10%만 보입니다.
-  float alpha = smoothstep(0.4, 1.0, t);
-
-  gl_FragColor = vec4(vec3(1.0), alpha);
-}
+      uniform vec3 uColor;
+      varying float vAlpha;
+      void main() {
+        gl_FragColor = vec4(uColor, vAlpha);
+      }
     `,
     transparent: true,
     depthWrite:  false,
     side: THREE.DoubleSide,
   })
-
   const shaft = new THREE.Mesh(shaftGeometry, shaftMaterial)
-  shaft.position.y = shaftHeight / 2  // 바닥이 y=0에 오도록
+  shaft.position.y = halfH  // 바닥이 y=0
   pinGroup.add(shaft)
 
   // -- 2. 삼각형 아이콘 (불투명) --
-  const triangleSize = 0.5
-  const triangleShape = new THREE.Shape()
-  triangleShape.moveTo(0, 0)
-  triangleShape.lineTo(triangleSize / 2, triangleSize)
-  triangleShape.lineTo(-triangleSize / 2, triangleSize)
-  triangleShape.lineTo(0, 0)
-
-  const triangleGeometry = new THREE.ShapeGeometry(triangleShape)
-  const triangleMaterial = new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide })
-  const triangle = new THREE.Mesh(triangleGeometry, triangleMaterial)
-  triangle.position.y = shaftHeight + 0.2
+  const triSize = 0.5
+  const triShape = new THREE.Shape()
+  triShape.moveTo(0, 0)
+  triShape.lineTo( triSize / 2, triSize)
+  triShape.lineTo(-triSize / 2, triSize)
+  triShape.lineTo(0, 0)
+  const triangleGeo = new THREE.ShapeGeometry(triShape)
+  const triangleMat = new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide })
+  const triangle    = new THREE.Mesh(triangleGeo, triangleMat)
+  const triBaseY    = shaftHeight + 0.2  // 삼각형 하단 Y
+  triangle.position.y = triBaseY
   pinGroup.add(triangle)
+
+  // -- 3. 삼각형 네온 글로우 (Sprite: 항상 카메라 방향, AdditiveBlending) --
+  // 캔버스에 방사형 그라데이션을 그려 소프트한 원형 후광을 만든다.
+  const canvas = document.createElement('canvas')
+  const size = 64; // 해상도를 조금 높이면 더 부드러워집니다.
+  canvas.width  = size
+  canvas.height = size
+
+  const ctx = canvas.getContext('2d')!
+  const cr = Math.round(rgb.r * 255)
+  const cg = Math.round(rgb.g * 255)
+  const cb = Math.round(rgb.b * 255)
+
+  const grad = ctx.createRadialGradient(32, 32, 0, 32, 32, 32)
+  grad.addColorStop(0,    `rgba(${cr},${cg},${cb},0.2)`)
+  grad.addColorStop(0.3, `rgba(${cr},${cg},${cb},0.15)`)
+  grad.addColorStop(0.5,  `rgba(${cr},${cg},${cb},0.05)`)
+  grad.addColorStop(0.7,    `rgba(${cr},${cg},${cb},0.0)`)
+  ctx.fillStyle = grad
+  ctx.fillRect(0, 0, size, size)
+
+  const glowTex = new THREE.CanvasTexture(canvas)
+  const glowMat = new THREE.SpriteMaterial({
+    map:       glowTex,
+    blending:  THREE.AdditiveBlending,
+    depthWrite: false,
+    transparent: true,
+  })
+  const glowSprite = new THREE.Sprite(glowMat)
+  glowSprite.scale.set(1.4, 1.4, 1)
+  glowSprite.position.y = triBaseY + triSize / 2  // 삼각형 무게중심 근처
+  pinGroup.add(glowSprite)
 
   pinGroup.visible = false
   return pinGroup
@@ -692,6 +716,10 @@ onBeforeUnmount(() => {
       if (obj instanceof THREE.Mesh) {
         obj.geometry.dispose()
         ;(obj.material as THREE.Material).dispose()
+      } else if (obj instanceof THREE.Sprite) {
+        const mat = obj.material as THREE.SpriteMaterial
+        mat.map?.dispose()
+        mat.dispose()
       }
     })
   }
