@@ -33,7 +33,7 @@ export const useMapStore = defineStore('map', () => {
   // ── System-wide display settings ─────────────────────────────────────────────
   const labelType        = ref<LabelType>('default')
   const tooltipType      = ref<TooltipType>('tooltip1')
-  const taskTooltipMode  = ref<'2d' | '3d'>('2d')
+  const taskTooltipMode  = ref<'2d' | '3d'>('3d')
 
   function getNode(id: number) {
     return nodes.value.find((n) => n.id === id)

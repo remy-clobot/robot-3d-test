@@ -2,6 +2,9 @@
 import { onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer';
+import { RenderPass } from 'three/examples/jsm/passes/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/passes/UnrealBloomPass.js';
 import { useAppStore } from '../stores/appStore'
 import { useMapStore } from '../stores/mapStore'
 import { worldToScreen, worldToScreen3D } from '../utils/coordinateSync'
@@ -10,6 +13,7 @@ import { createRobotGeometry, createOutlineGeometry } from '../three/geometry/Ro
 import { statusToNumber, type RobotType } from '../data/sampleData'
 import { loadBinPointCloud, POINT_HEIGHT_RANGE } from '../data/pointCloudData'
 import { sampleTasks } from '../data/sampleTasks'
+
 
 const appStore = useAppStore()
 const mapStore = useMapStore()
@@ -35,44 +39,71 @@ const robotArrows: THREE.LineSegments[] = []
 let   arrowMat:    THREE.LineBasicMaterial | null = null
 
 // ─── task 3D markers (pins only — path drawn by Konva) ───────────────────────
+
 let taskStartPin: THREE.Group | null = null
 let taskEndPin:   THREE.Group | null = null
 
-const createPinMesh = () => {
-  const pinGroup = new THREE.Group();
-  pinGroup.name = 'task_pin'; // 이름 고정
+function createPinMesh(color: number): THREE.Group {
+  const pinGroup = new THREE.Group()
+  pinGroup.name = 'task_pin'
 
-  const WHITE_COLOR = 0xFFFFFF;
+  const shaftHeight = 3.0
+  const shaftRadius = 0.02
+  const rgb = new THREE.Color(color)
 
-  // -- 1. 흰색 실선 (Shaft) --
-  const shaftHeight = 3;  // 실선 길이
-  const shaftRadius = 0.02; // 실선 굵기 고정
-  const shaftGeometry = new THREE.CylinderGeometry(shaftRadius, shaftRadius, shaftHeight, 8);
-  const shaftMaterial = new THREE.MeshBasicMaterial({ color: WHITE_COLOR });
-  const shaft = new THREE.Mesh(shaftGeometry, shaftMaterial);
+  // -- 1. 실선 (Shaft): 아래 투명 → 위 불투명 그라데이션 --
+  // CylinderGeometry 로컬 Y: -shaftHeight/2 (바닥) ~ +shaftHeight/2 (꼭대기)
+  // alpha = (y + shaftHeight/2) / shaftHeight  →  0.0 ~ 1.0
+  const shaftGeometry = new THREE.CylinderGeometry(shaftRadius, shaftRadius, shaftHeight, 12)
+  const shaftMaterial = new THREE.ShaderMaterial({
+    uniforms: {
+      uColor: { value: rgb },
+    },
+    vertexShader: /* glsl */`
+      varying float vY; // y 좌표를 전달할 변수
+      void main() {
+        vY = position.y;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: /* glsl */`
+      uniform vec3 color;
+varying float vY;
+void main() {
+  float halfH = 12.5; // (shaftHeight / 2) 직접 입력 혹은 uniform 전달
+  float t = clamp((vY + halfH) / (halfH * 2.0), 0.0, 1.0);
 
-  // 실선의 밑면이 그룹의 원점(바닥)에 오도록 위치 조정
-  shaft.position.y = shaftHeight / 2;
-  pinGroup.add(shaft);
+  // 이제 0.9를 주면 정확히 상단 10%만 보입니다.
+  float alpha = smoothstep(0.4, 1.0, t);
 
-  // -- 2. 흰색 삼각형 (Icon) --
-  const triangleSize = 0.5; // 삼각형 크기 고정
-  const triangleShape = new THREE.Shape();
-  // 정삼각형을 아래를 향하게 정의
-  triangleShape.moveTo(0, 0); // 뾰족한 끝점 (원점)
-  triangleShape.lineTo(triangleSize / 2, triangleSize); // 우측 상단
-  triangleShape.lineTo(-triangleSize / 2, triangleSize); // 좌측 상단
-  triangleShape.lineTo(0, 0); // 다시 끝점으로
+  gl_FragColor = vec4(vec3(1.0), alpha);
+}
+    `,
+    transparent: true,
+    depthWrite:  false,
+    side: THREE.DoubleSide,
+  })
 
-  const triangleGeometry = new THREE.ShapeGeometry(triangleShape);
-  const triangleMaterial = new THREE.MeshBasicMaterial({ color: WHITE_COLOR, side: THREE.DoubleSide });
-  const triangle = new THREE.Mesh(triangleGeometry, triangleMaterial);
+  const shaft = new THREE.Mesh(shaftGeometry, shaftMaterial)
+  shaft.position.y = shaftHeight / 2  // 바닥이 y=0에 오도록
+  pinGroup.add(shaft)
 
-  // 삼각형을 실선의 맨 위에 배치
-  triangle.position.y = shaftHeight + 0.2;
-  pinGroup.add(triangle);
+  // -- 2. 삼각형 아이콘 (불투명) --
+  const triangleSize = 0.5
+  const triangleShape = new THREE.Shape()
+  triangleShape.moveTo(0, 0)
+  triangleShape.lineTo(triangleSize / 2, triangleSize)
+  triangleShape.lineTo(-triangleSize / 2, triangleSize)
+  triangleShape.lineTo(0, 0)
 
-  return pinGroup;
+  const triangleGeometry = new THREE.ShapeGeometry(triangleShape)
+  const triangleMaterial = new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide })
+  const triangle = new THREE.Mesh(triangleGeometry, triangleMaterial)
+  triangle.position.y = shaftHeight + 0.2
+  pinGroup.add(triangle)
+
+  pinGroup.visible = false
+  return pinGroup
 }
 
 function updateTask3DMarkers(): void {
